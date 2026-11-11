@@ -1,0 +1,19 @@
+/* Тёмная тема, доска слева, панель справа */
+body { margin: 0; background: #1e1e1e; color: #ddd; font-family: "Segoe UI", sans-serif; }
+.layout { display: flex; gap: 16px; padding: 16px; }
+.board { width: 560px; height: 560px; flex: none; }
+.panel { width: 280px; display: flex; flex-direction: column; gap: 10px; }
+.status { font-size: 18px; font-weight: 600; min-height: 24px; }
+.lines { margin: 0; padding-left: 22px; font-size: 20px; font-family: Consolas, monospace; min-height: 84px; }
+.line-green { color: #4caf50; }
+.line-blue { color: #4a90e2; }
+.line-yellow { color: #e6c229; }
+.depth { color: #888; font-size: 12px; min-height: 16px; }
+.error { color: #ff6b6b; font-size: 13px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; }
+button { background: #333; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+button:hover { background: #444; }
+.toggle { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+.fen { display: flex; gap: 6px; }
+.fen input { flex: 1; min-width: 0; background: #2a2a2a; color: #ddd; border: 1px solid #555; border-radius: 4px; padding: 6px; }
+.history { font-size: 12px; color: #aaa; max-height: 140px; overflow: auto; line-height: 1.5; }

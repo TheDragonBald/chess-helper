@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Шахматный помогатор</title>
+  <link rel="stylesheet" href="vendor/chessground/assets/chessground.base.css">
+  <link rel="stylesheet" href="vendor/chessground/assets/chessground.brown.css">
+  <link rel="stylesheet" href="vendor/chessground/assets/chessground.cburnett.css">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "chessground": "./vendor/chessground/dist/chessground.js" } }
+  </script>
+</head>
+<body>
+  <main class="layout">
+    <div id="board" class="board"></div>
+    <aside class="panel">
+      <div id="status" class="status">Загрузка…</div>
+      <ol id="lines" class="lines"></ol>
+      <div id="depth" class="depth"></div>
+      <div id="engine-error" class="error" hidden></div>
+      <div class="buttons">
+        <button id="new-white">Новая за белых</button>
+        <button id="new-black">Новая за чёрных</button>
+        <button id="undo">Отменить (Ctrl+Z)</button>
+        <label class="toggle"><input type="checkbox" id="on-top"> Поверх окон</label>
+      </div>
+      <div class="fen">
+        <input id="fen-input" placeholder="Вставь FEN позиции">
+        <button id="load-fen">Загрузить</button>
+      </div>
+      <div id="action-error" class="error" hidden></div>
+      <div id="history" class="history"></div>
+    </aside>
+  </main>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
