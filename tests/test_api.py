@@ -1,0 +1,106 @@
+import chess
+import pytest
+
+from backend.api import Api
+from backend.game import GameSession
+
+
+class FakeEngine:
+    def __init__(self):
+        self.calls = []
+        self.error = None
+        self.on_update = None
+
+    def analyze(self, fen, pov, on_update):
+        self.calls.append(("analyze", fen, pov))
+        self.on_update = on_update
+
+    def stop(self):
+        self.calls.append(("stop",))
+
+
+@pytest.fixture
+def setup():
+    engine = FakeEngine()
+    pushed, on_top = [], []
+    api = Api(GameSession(), engine, pushed.append, on_top.append)
+    return api, engine, pushed, on_top
+
+
+def test_new_game_as_white_starts_analysis(setup):
+    api, engine, _, _ = setup
+    state = api.new_game("white")
+    assert state["fen"] == chess.STARTING_FEN
+    assert engine.calls[-1] == ("analyze", chess.STARTING_FEN, chess.WHITE)
+
+
+def test_new_game_as_black_stops_analysis(setup):
+    api, engine, _, _ = setup
+    state = api.new_game("black")
+    assert state["my_color"] == "black"
+    assert engine.calls[-1] == ("stop",)
+
+
+def test_opponent_turn_stops_analysis(setup):
+    api, engine, _, _ = setup
+    api.new_game("white")
+    api.move("e2", "e4")
+    assert engine.calls[-1] == ("stop",)
+
+
+def test_my_turn_as_black_starts_analysis(setup):
+    api, engine, _, _ = setup
+    api.new_game("black")
+    state = api.move("e2", "e4")
+    assert engine.calls[-1] == ("analyze", state["fen"], chess.BLACK)
+
+
+def test_illegal_move_does_not_touch_engine(setup):
+    api, engine, _, _ = setup
+    api.new_game("white")
+    calls_before = len(engine.calls)
+    state = api.move("e2", "e5")
+    assert state["error"] == "Незаконный ход: e2-e5"
+    assert len(engine.calls) == calls_before
+
+
+def test_undo_back_to_my_turn_restarts_analysis(setup):
+    api, engine, _, _ = setup
+    api.new_game("white")
+    api.move("e2", "e4")
+    state = api.undo()
+    assert engine.calls[-1] == ("analyze", state["fen"], chess.WHITE)
+
+
+def test_load_fen_reanalyzes(setup):
+    api, engine, _, _ = setup
+    api.new_game("black")
+    fen = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+    api.load_fen(fen)
+    assert engine.calls[-1] == ("analyze", fen, chess.BLACK)
+
+
+def test_state_contains_engine_error(setup):
+    api, engine, _, _ = setup
+    engine.error = "Не найден Stockfish"
+    assert api.get_state()["engine_error"] == "Не найден Stockfish"
+
+
+def test_analysis_results_are_pushed(setup):
+    api, engine, pushed, _ = setup
+    api.new_game("white")
+    engine.on_update({"fen": "x", "depth": 10, "lines": []})
+    assert pushed == [{"fen": "x", "depth": 10, "lines": []}]
+
+
+def test_set_on_top_passes_flag(setup):
+    api, _, _, on_top = setup
+    api.set_on_top(True)
+    api.set_on_top(False)
+    assert on_top == [True, False]
+
+
+def test_only_api_methods_are_public(setup):
+    api, _, _, _ = setup
+    public = {name for name in dir(api) if not name.startswith("_")}
+    assert public == {"get_state", "new_game", "move", "undo", "load_fen", "set_on_top"}
