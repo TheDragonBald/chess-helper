@@ -1,3 +1,4 @@
+import threading
 import time
 from pathlib import Path
 
@@ -83,3 +84,67 @@ def test_new_analysis_replaces_old_one(analyzer):
     analyzer.wait(timeout=15)
     assert second and second[-1]["fen"] == MATE_IN_ONE
     assert all(r["fen"] == chess.STARTING_FEN for r in first)
+
+
+@needs_engine
+def test_analyze_after_close_does_nothing(analyzer):
+    analyzer.close()
+    updates = []
+    analyzer.analyze(MATE_IN_ONE, chess.WHITE, updates.append)
+    analyzer.wait(timeout=2)
+    assert updates == []
+    assert analyzer._engine is None
+
+
+@needs_engine
+def test_concurrent_analyze_calls_are_safe(analyzer):
+    # Параллельные analyze() из разных потоков не должны ронять потоки и ломать движок
+    errors = []
+    old_hook = threading.excepthook
+    threading.excepthook = lambda args: errors.append(args)
+    try:
+        fens = [chess.STARTING_FEN, MATE_IN_ONE, WHITE_WITHOUT_QUEEN]
+        count = 6
+        barrier = threading.Barrier(count)
+        collected = []
+
+        def call(i):
+            barrier.wait()
+            analyzer.analyze(fens[i % 3], chess.WHITE, collected.append)
+
+        threads = [threading.Thread(target=call, args=(i,)) for i in range(count)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        final_updates = []
+        analyzer.analyze(MATE_IN_ONE, chess.WHITE, final_updates.append)
+        analyzer.wait(timeout=15)
+    finally:
+        threading.excepthook = old_hook
+    assert errors == []
+    assert final_updates[-1]["fen"] == MATE_IN_ONE
+    assert final_updates[-1]["lines"][0]["uci"] == "a1a8"
+
+
+@needs_engine
+def test_on_update_exception_does_not_mark_engine_crashed(analyzer):
+    errors = []
+    old_hook = threading.excepthook
+    threading.excepthook = lambda args: errors.append(args)
+
+    def broken(_result):
+        raise RuntimeError("окно закрыто")
+
+    try:
+        analyzer.analyze(MATE_IN_ONE, chess.WHITE, broken)
+        analyzer.wait(timeout=15)
+        assert analyzer.error is None
+        assert errors == []
+        updates = []
+        analyzer.analyze(MATE_IN_ONE, chess.WHITE, updates.append)
+        analyzer.wait(timeout=15)
+    finally:
+        threading.excepthook = old_hook
+    assert updates

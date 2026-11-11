@@ -57,7 +57,9 @@ class EngineAnalyzer:
         self._thread: threading.Thread | None = None
         self._analysis = None  # текущий SimpleAnalysisResult
         self._token = 0  # номер актуального анализа; старые потоки сравнивают с ним
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # состояние анализа; единственный замок воркера
+        self._api_lock = threading.RLock()  # сериализует analyze/stop/close; воркер его не берёт
+        self._closed = False
         self._open()
 
     def _open(self) -> bool:
@@ -75,29 +77,35 @@ class EngineAnalyzer:
         return True
 
     def analyze(self, fen: str, pov: chess.Color, on_update: OnUpdate) -> None:
-        self.stop()
-        if self._engine is None and self._crashed:
-            # Движок упал в прошлый раз — один перезапуск
-            self._crashed = False
-            self._open()
-        if self._engine is None:
-            return
-        with self._lock:
-            self._token += 1
-            token = self._token
-        board = chess.Board(fen)
-        self._thread = threading.Thread(
-            target=self._run, args=(board, pov, on_update, token), daemon=True
-        )
-        self._thread.start()
+        # Весь метод под _api_lock: вызовы приходят из разных потоков pywebview
+        with self._api_lock:
+            self.stop()
+            if self._closed:
+                return
+            if self._engine is None and self._crashed:
+                # Движок упал в прошлый раз — один перезапуск
+                self._crashed = False
+                self._open()
+            if self._engine is None:
+                return
+            with self._lock:
+                self._token += 1
+                token = self._token
+            board = chess.Board(fen)
+            thread = threading.Thread(
+                target=self._run, args=(board, pov, on_update, token), daemon=True
+            )
+            self._thread = thread
+            thread.start()
 
     def stop(self) -> None:
-        with self._lock:
-            self._token += 1
-            analysis = self._analysis
-        if analysis is not None:
-            analysis.stop()
-        self.wait()
+        with self._api_lock:
+            with self._lock:
+                self._token += 1
+                analysis = self._analysis
+            if analysis is not None:
+                analysis.stop()
+            self.wait()
 
     def wait(self, timeout: float | None = None) -> None:
         thread = self._thread
@@ -105,18 +113,30 @@ class EngineAnalyzer:
             thread.join(timeout)
 
     def close(self) -> None:
-        self.stop()
-        if self._engine is not None:
-            try:
-                self._engine.quit()
-            except chess.engine.EngineError:
-                pass
-            self._engine = None
+        with self._api_lock:
+            self._closed = True
+            with self._lock:
+                self._token += 1
+                analysis = self._analysis
+            if analysis is not None:
+                analysis.stop()
+            # Таймаут нужен: если close() вызван из GUI-потока, а воркер ждёт evaluate_js,
+            # бесконечный join дал бы взаимную блокировку
+            self.wait(timeout=5)
+            engine, self._engine = self._engine, None
+            if engine is not None:
+                try:
+                    engine.quit()
+                except (chess.engine.EngineError, TimeoutError):
+                    try:
+                        engine.close()
+                    except Exception:
+                        pass
 
     def _run(self, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
         try:
             self._run_once(board, pov, on_update, token)
-        except chess.engine.EngineError as exc:  # включает EngineTerminatedError
+        except (chess.engine.EngineError, TimeoutError) as exc:  # EngineError включает EngineTerminatedError
             self._crashed = True
             self.error = f"Stockfish упал: {exc}"
             engine, self._engine = self._engine, None
@@ -128,6 +148,14 @@ class EngineAnalyzer:
         finally:
             with self._lock:
                 self._analysis = None
+
+    def _deliver(self, on_update: OnUpdate, result: dict) -> bool:
+        # Ошибка колбэка (например, окно уже закрыто) не означает падение движка
+        try:
+            on_update(result)
+        except Exception:
+            return False
+        return True
 
     def _run_once(self, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
         limit = chess.engine.Limit(depth=MAX_DEPTH, time=MAX_TIME)
@@ -149,10 +177,11 @@ class EngineAnalyzer:
                 if depth >= MIN_DEPTH_TO_SEND and depth > last_depth and now - last_sent_at >= SEND_INTERVAL:
                     result = build_result(board, pov, analysis.multipv)
                     if result["lines"]:
-                        on_update(result)
+                        if not self._deliver(on_update, result):
+                            return  # колбэк сломан — прекращаем отправку по этому анализу
                         last_depth = depth
                         last_sent_at = now
             if token == self._token:
                 result = build_result(board, pov, analysis.multipv)
                 if result["lines"]:
-                    on_update(result)
+                    self._deliver(on_update, result)
