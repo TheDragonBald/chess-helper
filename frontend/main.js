@@ -8,6 +8,7 @@ const GAME_OVER = ['checkmate', 'stalemate', 'draw'];
 const el = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
 let state = null;
+let moveInFlight = false; // идёт запрос хода к бэку: поздний анализ старой позиции игнорируем
 
 const cg = Chessground(el('board'), {
   movable: { free: false, showDests: true, events: { after: onUserMove } },
@@ -15,11 +16,35 @@ const cg = Chessground(el('board'), {
   animation: { enabled: true, duration: 150 },
 });
 
+// Общий вызов бэка: рендерит ответ; при ошибке показывает её и пересинхронизирует доску
+async function call(fn) {
+  try {
+    render(await fn());
+  } catch (err) {
+    const message = String(err?.message ?? err);
+    showError(el('action-error'), message);
+    try {
+      render(await api().get_state());
+      showError(el('action-error'), message); // render мог стереть текст ошибки
+    } catch {
+      // состояние не получить — оставляем сообщение об ошибке
+    }
+  }
+}
+
 async function onUserMove(orig, dest) {
-  render(await api().move(orig, dest));
+  clearHints(); // старые стрелки больше не актуальны
+  moveInFlight = true;
+  try {
+    await call(() => api().move(orig, dest));
+  } finally {
+    moveInFlight = false;
+  }
 }
 
 function render(next) {
+  // подсказки сбрасываем, только если позиция действительно сменилась
+  const changed = !state || next.fen !== state.fen || next.my_color !== state.my_color;
   state = next;
   cg.set({
     fen: state.fen,
@@ -29,7 +54,7 @@ function render(next) {
     check: state.status === 'check' || state.status === 'checkmate',
     movable: { color: state.turn, dests: new Map(Object.entries(state.dests)) },
   });
-  clearHints(); // свежие подсказки придут в onAnalysis
+  if (changed) clearHints(); // свежие подсказки придут в onAnalysis
   renderStatus();
 }
 
@@ -73,7 +98,7 @@ function formatScore({ cp, mate }) {
 
 // Бэк вызывает эту функцию через evaluate_js по мере расчёта
 window.onAnalysis = (result) => {
-  if (!state || result.fen !== state.fen || state.turn !== state.my_color) return; // устаревший анализ
+  if (moveInFlight || !state || result.fen !== state.fen || state.turn !== state.my_color) return; // устаревший анализ
   const shapes = result.lines.map((line, i) => ({
     orig: line.uci.slice(0, 2),
     dest: line.uci.slice(2, 4),
@@ -90,22 +115,25 @@ window.onAnalysis = (result) => {
   el('depth').textContent = `Глубина ${result.depth}`;
 };
 
-el('new-white').addEventListener('click', async () => render(await api().new_game('white')));
-el('new-black').addEventListener('click', async () => render(await api().new_game('black')));
-el('undo').addEventListener('click', async () => render(await api().undo()));
-el('on-top').addEventListener('change', async (e) => render(await api().set_on_top(e.target.checked)));
-el('load-fen').addEventListener('click', async () => render(await api().load_fen(el('fen-input').value.trim())));
+el('new-white').addEventListener('click', () => call(() => api().new_game('white')));
+el('new-black').addEventListener('click', () => call(() => api().new_game('black')));
+el('undo').addEventListener('click', () => call(() => api().undo()));
+el('on-top').addEventListener('change', (e) => call(() => api().set_on_top(e.target.checked)));
+el('load-fen').addEventListener('click', () => call(() => api().load_fen(el('fen-input').value.trim())));
 
-document.addEventListener('keydown', async (e) => {
+document.addEventListener('keydown', (e) => {
+  // в текстовом поле Ctrl+Z — это отмена ввода, а не отмена хода
+  const tag = e.target?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
   // KeyZ не зависит от раскладки (работает и на русской)
   if (e.ctrlKey && e.code === 'KeyZ') {
     e.preventDefault();
-    render(await api().undo());
+    call(() => api().undo());
   }
 });
 
-async function start() {
-  render(await api().new_game('white'));
+function start() {
+  return call(() => api().new_game('white'));
 }
 
 if (window.pywebview?.api) start();
