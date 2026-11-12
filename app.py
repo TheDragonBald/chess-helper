@@ -1,5 +1,6 @@
 """Запуск помогатора: окно pywebview + бэк на Python."""
 import json
+import logging
 
 import webview
 
@@ -9,18 +10,26 @@ from backend.game import GameSession
 
 
 def main() -> None:
-    game = GameSession()
-    engine = EngineAnalyzer()
+    # Предупреждения и ошибки — в консоль: по ним видно, почему не пришли подсказки
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     holder: dict = {}  # окно создаётся после Api, поэтому храним ссылку здесь
 
-    def push_analysis(result: dict) -> None:
+    def run_js(script: str) -> None:
         window = holder.get("window")
         if window is not None:
-            window.evaluate_js(f"window.onAnalysis({json.dumps(result)})")
+            window.evaluate_js(script)
+
+    def push_analysis(result: dict) -> None:
+        run_js(f"window.onAnalysis({json.dumps(result)})")
+
+    def push_engine_error(message: str) -> None:
+        run_js(f"window.onEngineError({json.dumps(message)})")
 
     def set_on_top(flag: bool) -> None:
         holder["window"].on_top = flag
 
+    game = GameSession()
+    engine = EngineAnalyzer(on_error=push_engine_error)
     api = Api(game, engine, push_analysis, set_on_top)
     window = webview.create_window(
         "Шахматный помогатор",

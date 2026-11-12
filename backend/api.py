@@ -20,48 +20,60 @@ class Api:
         self._set_on_top = set_on_top
         # pywebview вызывает каждый метод в отдельном потоке, а GameSession не потокобезопасна
         self._lock = threading.Lock()
+        # Номер версии позиции: по нему фронт отличает свежие ответы и анализ от запоздавших
+        self._rev = 0
 
     def get_state(self) -> dict:
         with self._lock:
-            return self._state()
+            return self._state(with_error=False)
 
     def new_game(self, my_color: str) -> dict:
         with self._lock:
             self._game.new_game(my_color)
-            self._refresh_analysis()
+            self._position_changed()
             return self._state()
 
     def move(self, from_sq: str, to_sq: str) -> dict:
         with self._lock:
             if self._game.move(from_sq, to_sq):
-                self._refresh_analysis()
+                self._position_changed()
             return self._state()
 
     def undo(self) -> dict:
         with self._lock:
             if self._game.undo():
-                self._refresh_analysis()
+                self._position_changed()
             return self._state()
 
     def load_fen(self, fen: str) -> dict:
         with self._lock:
             if self._game.load_fen(fen):
-                self._refresh_analysis()
+                self._position_changed()
             return self._state()
 
     def set_on_top(self, flag: bool) -> dict:
         with self._lock:
             self._set_on_top(bool(flag))
-            return self._state()
+            return self._state(with_error=False)
 
-    def _refresh_analysis(self) -> None:
-        # Подсказки нужны только на ходу пользователя
+    def _position_changed(self) -> None:
+        # Новая версия позиции; подсказки нужны только на ходу пользователя
+        self._rev += 1
         if self._game.is_my_turn():
-            self._engine.analyze(self._game.board.fen(), self._game.my_color, self._push_analysis)
+            rev = self._rev
+            push = self._push_analysis
+            self._engine.analyze(
+                self._game.board.fen(),
+                self._game.my_color,
+                lambda result: push({**result, "rev": rev}),
+            )
         else:
             self._engine.stop()
 
-    def _state(self) -> dict:
+    def _state(self, with_error: bool = True) -> dict:
         state = self._game.state()
+        state["rev"] = self._rev
         state["engine_error"] = self._engine.error
+        if not with_error:
+            state["error"] = None  # ошибка относится только к действию, которое её вызвало
         return state
