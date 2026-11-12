@@ -1,6 +1,7 @@
 """Stockfish в фоновом потоке: три лучших хода для позиции."""
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -11,13 +12,19 @@ import chess
 import chess.engine
 
 DEFAULT_PATH = Path(__file__).resolve().parent.parent / "engine" / "stockfish.exe"
+ENGINE_OPTIONS = {"Threads": 2, "Hash": 128}
 MULTIPV = 3
 MAX_DEPTH = 20
 MAX_TIME = 4.0
 MIN_DEPTH_TO_SEND = 8
 SEND_INTERVAL = 0.25
+STOP_TIMEOUT = 2.0  # сколько stop() ждёт воркер и доставку; дольше — значит что-то зависло
+CLOSE_TIMEOUT = 5.0  # сколько close() ждёт замок API, прежде чем закрыть движок без него
 
 OnUpdate = Callable[[dict], None]
+OnError = Callable[[str], None]
+
+log = logging.getLogger(__name__)
 
 
 def resolve_engine_path() -> Path:
@@ -49,30 +56,47 @@ def build_result(board: chess.Board, pov: chess.Color, infos: list[dict]) -> dic
 
 
 class EngineAnalyzer:
-    def __init__(self, path: Path | None = None) -> None:
+    def __init__(self, path: Path | None = None, on_error: OnError | None = None) -> None:
         self.path = path or resolve_engine_path()
         self.error: str | None = None
+        self._on_error = on_error  # сообщить о падении движка сразу, не дожидаясь действия
         self._engine: chess.engine.SimpleEngine | None = None
-        self._crashed = False
+        self._crashed = False  # движок упал и ещё не перезапускался
+        self._can_restart = True  # один перезапуск до следующего успешного анализа
         self._thread: threading.Thread | None = None
         self._analysis = None  # текущий SimpleAnalysisResult
         self._token = 0  # номер актуального анализа; старые потоки сравнивают с ним
-        self._lock = threading.Lock()  # состояние анализа; единственный замок воркера
+        self._lock = threading.Lock()  # состояние анализа; воркер берёт только его
         self._api_lock = threading.RLock()  # сериализует analyze/stop/close; воркер его не берёт
         self._closed = False
+        # Результаты в окно доставляет отдельный поток-курьер: воркер движка никогда
+        # не ждёт evaluate_js, поэтому stop() и close() не зависнут вместе с окном
+        self._mail = threading.Condition()
+        self._outbox: tuple[int | None, Callable[[], None]] | None = None
+        self._delivering = False
+        threading.Thread(target=self._courier_loop, daemon=True, name="engine-courier").start()
         self._open()
 
     def _open(self) -> bool:
         if not self.path.exists():
             self.error = f"Не найден Stockfish: положи stockfish.exe в {self.path}"
             return False
+        engine = None
         try:
-            self._engine = chess.engine.SimpleEngine.popen_uci(str(self.path))
-            self._engine.configure({"Threads": 2, "Hash": 128})
+            engine = chess.engine.SimpleEngine.popen_uci(str(self.path))
+            engine.configure(ENGINE_OPTIONS)
         except (chess.engine.EngineError, OSError) as exc:
-            self._engine = None
+            # Процесс мог успеть запуститься: без close() он и поток python-chess
+            # не дадут приложению завершиться
+            if engine is not None:
+                try:
+                    engine.close()
+                except Exception:
+                    log.exception("Не удалось закрыть движок после ошибки запуска")
             self.error = f"Не удалось запустить Stockfish: {exc}"
+            log.warning(self.error)
             return False
+        self._engine = engine
         self.error = None
         return True
 
@@ -82,18 +106,22 @@ class EngineAnalyzer:
             self.stop()
             if self._closed:
                 return
-            if self._engine is None and self._crashed:
-                # Движок упал в прошлый раз — один перезапуск
-                self._crashed = False
-                self._open()
-            if self._engine is None:
+            with self._lock:
+                restart = self._engine is None and self._crashed and self._can_restart
+                if restart:
+                    self._crashed = False
+                    self._can_restart = False
+            if restart:
+                self._open()  # движок упал — единственный перезапуск
+            engine = self._engine
+            if engine is None:
                 return
             with self._lock:
                 self._token += 1
                 token = self._token
             board = chess.Board(fen)
             thread = threading.Thread(
-                target=self._run, args=(board, pov, on_update, token), daemon=True
+                target=self._run, args=(engine, board, pov, on_update, token), daemon=True
             )
             self._thread = thread
             thread.start()
@@ -105,24 +133,36 @@ class EngineAnalyzer:
                 analysis = self._analysis
             if analysis is not None:
                 analysis.stop()
-            self.wait()
+            # Воркер не ждёт окно, поэтому завершается быстро; зависшую доставку не ждём дольше таймаута
+            self.wait(timeout=STOP_TIMEOUT)
 
-    def wait(self, timeout: float | None = None) -> None:
+    def wait(self, timeout: float | None = None) -> bool:
+        # Ждёт конца анализа и доставки его последнего результата; True — если дождались
+        deadline = None if timeout is None else time.monotonic() + timeout
         thread = self._thread
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout)
+            if thread.is_alive():
+                return False
+        remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+        with self._mail:
+            return self._mail.wait_for(
+                lambda: self._outbox is None and not self._delivering, remaining
+            )
 
     def close(self) -> None:
-        with self._api_lock:
+        # Замок берём с таймаутом: если analyze/stop завис, движок всё равно надо закрыть
+        locked = self._api_lock.acquire(timeout=CLOSE_TIMEOUT)
+        try:
+            if self._closed and self._engine is None:
+                return  # уже закрыт: повторный вызов из finally в app.py ничего не ждёт
             self._closed = True
             with self._lock:
                 self._token += 1
                 analysis = self._analysis
             if analysis is not None:
                 analysis.stop()
-            # Таймаут в 5 с защищает от воркера, застрявшего в evaluate_js;
-            # он не поможет, если _api_lock сейчас держат analyze/stop
-            self.wait(timeout=5)
+            self.wait(timeout=STOP_TIMEOUT)
             engine, self._engine = self._engine, None
             if engine is not None:
                 try:
@@ -131,38 +171,80 @@ class EngineAnalyzer:
                     try:
                         engine.close()
                     except Exception:
-                        pass
+                        log.exception("Не удалось закрыть Stockfish")
+        finally:
+            with self._mail:
+                self._mail.notify_all()  # курьер увидит _closed и выйдет
+            if locked:
+                self._api_lock.release()
 
-    def _run(self, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
+    def _post(self, token: int | None, send: Callable[[], None]) -> None:
+        # Кладёт доставку в «почтовый ящик»; новое сообщение вытесняет недоставленное старое
+        with self._mail:
+            self._outbox = (token, send)
+            self._mail.notify_all()
+
+    def _courier_loop(self) -> None:
+        while True:
+            with self._mail:
+                self._mail.wait_for(lambda: self._outbox is not None or self._closed)
+                if self._outbox is None:
+                    return  # анализатор закрыт, доставлять нечего
+                token, send = self._outbox
+                self._outbox = None
+                # Чтение int атомарно; token None — сообщение об ошибке, оно не устаревает
+                if token is not None and token != self._token:
+                    self._mail.notify_all()
+                    continue  # позиция уже сменилась
+                self._delivering = True
+            try:
+                send()
+            except Exception:
+                # Например, окно уже закрыто или onAnalysis бросил исключение в JS
+                log.exception("Не удалось доставить сообщение движка в окно")
+            finally:
+                with self._mail:
+                    self._delivering = False
+                    self._mail.notify_all()
+
+    def _run(self, engine, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
         try:
-            self._run_once(board, pov, on_update, token)
-        except (chess.engine.EngineError, TimeoutError) as exc:  # EngineError включает EngineTerminatedError
-            self._crashed = True
-            self.error = f"Stockfish упал: {exc}"
-            engine, self._engine = self._engine, None
-            if engine is not None:
-                try:
-                    engine.close()
-                except Exception:
-                    pass
+            self._run_once(engine, board, pov, on_update, token)
+        except Exception as exc:  # EngineTerminatedError, TimeoutError и всё неожиданное
+            self._handle_crash(engine, exc)
+        else:
+            with self._lock:
+                self._can_restart = True  # анализ прошёл: следующему падению снова положен перезапуск
         finally:
             with self._lock:
                 self._analysis = None
 
-    def _deliver(self, on_update: OnUpdate, result: dict) -> bool:
-        # Ошибка колбэка (например, окно уже закрыто) не означает падение движка
+    def _handle_crash(self, engine, exc: Exception) -> None:
+        log.error("Stockfish упал во время анализа", exc_info=exc)
+        with self._lock:
+            restart = self._can_restart
+            self._crashed = True
+            if self._engine is engine:
+                self._engine = None
         try:
-            on_update(result)
+            engine.close()
         except Exception:
-            return False
-        return True
+            log.exception("Не удалось закрыть упавший Stockfish")
+        if restart:
+            self.error = f"Stockfish упал: {exc}. Перезапущу его на следующем ходе"
+        else:
+            self.error = f"Stockfish снова упал: {exc}. Подсказки отключены — перезапусти помогатор"
+        on_error = self._on_error
+        if on_error is not None and not self._closed:
+            message = self.error
+            self._post(None, lambda: on_error(message))
 
-    def _run_once(self, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
+    def _run_once(self, engine, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> None:
         limit = chess.engine.Limit(depth=MAX_DEPTH, time=MAX_TIME)
         expected = min(MULTIPV, board.legal_moves.count())
         last_depth = 0
         last_sent_at = 0.0
-        with self._engine.analysis(board, limit, multipv=MULTIPV) as analysis:
+        with engine.analysis(board, limit, multipv=MULTIPV) as analysis:
             with self._lock:
                 if token != self._token:
                     return
@@ -177,11 +259,10 @@ class EngineAnalyzer:
                 if depth >= MIN_DEPTH_TO_SEND and depth > last_depth and now - last_sent_at >= SEND_INTERVAL:
                     result = build_result(board, pov, analysis.multipv)
                     if result["lines"]:
-                        if not self._deliver(on_update, result):
-                            return  # колбэк сломан — прекращаем отправку по этому анализу
+                        self._post(token, lambda r=result: on_update(r))
                         last_depth = depth
                         last_sent_at = now
             if token == self._token:
                 result = build_result(board, pov, analysis.multipv)
                 if result["lines"]:
-                    self._deliver(on_update, result)
+                    self._post(token, lambda r=result: on_update(r))

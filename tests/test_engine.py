@@ -68,8 +68,14 @@ def test_score_is_from_users_point_of_view(analyzer):
 @needs_engine
 def test_stop_prevents_further_updates(analyzer):
     updates = []
-    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, updates.append)
-    time.sleep(0.3)
+    first = threading.Event()
+
+    def collect(result):
+        updates.append(result)
+        first.set()
+
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, collect)
+    assert first.wait(timeout=10), "анализ не прислал ни одного результата"
     analyzer.stop()
     count = len(updates)
     time.sleep(1.0)
