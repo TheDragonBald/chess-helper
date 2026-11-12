@@ -6,12 +6,15 @@
 
 ## Установка (Windows)
 
+Команды ниже — для Git Bash или PowerShell (не для cmd.exe). Нужен WebView2 Runtime
+(на Windows 11 установлен по умолчанию).
+
 ```bash
 py -3.13 -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 ```
 
-Stockfish: на странице
+Stockfish: сначала создай папку `engine` (в свежем клоне её нет), затем на странице
 https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1 скачай
 `stockfish-windows-x86-64-avx2.zip` (или `stockfish-windows-x86-64.zip`, если у
 процессора нет AVX2) и положи exe из архива как `engine/stockfish.exe` (или

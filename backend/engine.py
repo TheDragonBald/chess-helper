@@ -120,8 +120,8 @@ class EngineAnalyzer:
                 analysis = self._analysis
             if analysis is not None:
                 analysis.stop()
-            # Таймаут нужен: если close() вызван из GUI-потока, а воркер ждёт evaluate_js,
-            # бесконечный join дал бы взаимную блокировку
+            # Таймаут в 5 с защищает от воркера, застрявшего в evaluate_js;
+            # он не поможет, если _api_lock сейчас держат analyze/stop
             self.wait(timeout=5)
             engine, self._engine = self._engine, None
             if engine is not None:

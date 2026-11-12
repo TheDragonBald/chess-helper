@@ -11,6 +11,7 @@ let state = null;
 let moveInFlight = false; // идёт запрос хода к бэку: поздний анализ старой позиции игнорируем
 
 const cg = Chessground(el('board'), {
+  premovable: { enabled: false },
   movable: { free: false, showDests: true, events: { after: onUserMove } },
   highlight: { lastMove: true, check: true },
   animation: { enabled: true, duration: 150 },
@@ -122,9 +123,8 @@ el('on-top').addEventListener('change', (e) => call(() => api().set_on_top(e.tar
 el('load-fen').addEventListener('click', () => call(() => api().load_fen(el('fen-input').value.trim())));
 
 document.addEventListener('keydown', (e) => {
-  // в текстовом поле Ctrl+Z — это отмена ввода, а не отмена хода
-  const tag = e.target?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  // в текстовом поле Ctrl+Z — это отмена ввода, а не отмена хода; чекбокс не в счёт
+  if (e.target?.matches?.('textarea, input:not([type="checkbox"])')) return;
   // KeyZ не зависит от раскладки (работает и на русской)
   if (e.ctrlKey && e.code === 'KeyZ') {
     e.preventDefault();

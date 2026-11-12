@@ -32,7 +32,11 @@ def main() -> None:
     )
     holder["window"] = window
     window.events.closed += engine.close
-    webview.start(http_server=True)
+    try:
+        webview.start(http_server=True)
+    finally:
+        # Фоновый поток python-chess не демон: без этого процесс завис бы при сбое start()
+        engine.close()
 
 
 if __name__ == "__main__":
