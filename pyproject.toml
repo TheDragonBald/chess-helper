@@ -1,0 +1,20 @@
+[project]
+name = "chess-helper"
+version = "0.1.0"
+description = "Desktop chess helper: mirror a game and get Stockfish top-3 hints"
+readme = "README.md"
+# pywebview на Windows тянет pythonnet, поддержка 3.14 у него не гарантирована
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "pywebview==6.2.1",
+    "chess==1.11.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.uv]
+# Это приложение, а не библиотека: собирать и устанавливать сам проект не нужно
+package = false
