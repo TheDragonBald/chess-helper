@@ -9,6 +9,9 @@ green arrow is the best one, blue and yellow are the second and third.
 The interface is in Russian; the controls below give the button names with
 translations.
 
+More (in Russian): [about the project](docs/ABOUT_PROJECT.md) and
+[architecture](docs/ARCHITECTURE.md).
+
 ## Installation (Windows)
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/) (for
@@ -91,6 +94,8 @@ The board is [chessground](https://github.com/lichess-org/chessground)
 Окно с доской: повторяешь в нём ходы партии (свои и соперника), а на своём ходу
 видишь три лучших хода от Stockfish — зелёная стрелка лучший, синяя и жёлтая —
 второй и третий.
+
+Подробнее: [о проекте](docs/ABOUT_PROJECT.md) и [архитектура](docs/ARCHITECTURE.md).
 
 ## Установка (Windows)
 
