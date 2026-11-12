@@ -11,11 +11,13 @@ from backend.game import GameSession
 class FakeEngine:
     def __init__(self):
         self.calls = []
+        self.boards = []
         self.error = None
         self.on_update = None
 
-    def analyze(self, fen, pov, on_update):
-        self.calls.append(("analyze", fen, pov))
+    def analyze(self, position, pov, on_update):
+        self.calls.append(("analyze", position.fen(), pov))
+        self.boards.append(position)
         self.on_update = on_update
 
     def stop(self):
@@ -58,6 +60,16 @@ def test_my_turn_as_black_starts_analysis(setup):
     assert engine.calls[-1] == ("analyze", state["fen"], chess.BLACK)
 
 
+def test_engine_gets_the_move_history(setup):
+    api, engine, _, _ = setup
+    api.new_game("white")
+    api.move("e2", "e4")
+    api.move("e7", "e5")
+    board = engine.boards[-1]
+    assert [m.uci() for m in board.move_stack] == ["e2e4", "e7e5"]
+    assert board.root().fen() == chess.STARTING_FEN
+
+
 def test_illegal_move_does_not_touch_engine(setup):
     api, engine, _, _ = setup
     api.new_game("white")
@@ -89,11 +101,40 @@ def test_state_contains_engine_error(setup):
     assert api.get_state()["engine_error"] == "Не найден Stockfish"
 
 
-def test_analysis_results_are_pushed(setup):
+def test_analysis_results_carry_position_rev(setup):
+    api, engine, pushed, _ = setup
+    state = api.new_game("white")
+    engine.on_update({"fen": state["fen"], "depth": 10, "lines": []})
+    assert pushed == [{"fen": state["fen"], "depth": 10, "lines": [], "rev": state["rev"]}]
+
+
+def test_rev_changes_only_when_position_changes(setup):
+    api, _, _, _ = setup
+    first = api.new_game("white")
+    moved = api.move("e2", "e4")
+    assert moved["rev"] == first["rev"] + 1
+    assert api.move("e7", "e4")["rev"] == moved["rev"]  # незаконный ход позицию не меняет
+    assert api.get_state()["rev"] == moved["rev"]
+    assert api.undo()["rev"] == moved["rev"] + 1
+
+
+def test_late_analysis_keeps_its_own_rev(setup):
     api, engine, pushed, _ = setup
     api.new_game("white")
-    engine.on_update({"fen": "x", "depth": 10, "lines": []})
-    assert pushed == [{"fen": "x", "depth": 10, "lines": []}]
+    old_update = engine.on_update
+    api.move("e2", "e4")
+    state = api.move("e7", "e5")
+    old_update({"fen": "old", "depth": 9, "lines": []})
+    engine.on_update({"fen": state["fen"], "depth": 9, "lines": []})
+    assert [p["rev"] for p in pushed] == [state["rev"] - 2, state["rev"]]
+
+
+def test_error_belongs_to_the_action_only(setup):
+    api, _, _, _ = setup
+    api.new_game("white")
+    assert api.move("e2", "e5")["error"] == "Незаконный ход: e2-e5"
+    assert api.get_state()["error"] is None
+    assert api.set_on_top(True)["error"] is None
 
 
 def test_set_on_top_passes_flag(setup):
@@ -145,5 +186,7 @@ def test_concurrent_calls_do_not_corrupt_board(setup):
     board = api._game.board
     replay = board.root()
     for move in board.move_stack:
+        # push() не проверяет законность, поэтому проверяем каждый ход явно
+        assert replay.is_legal(move)
         replay.push(move)
     assert replay.fen() == board.fen()

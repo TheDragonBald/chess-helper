@@ -2,13 +2,25 @@
 import { Chessground } from 'chessground';
 
 const BRUSHES = ['green', 'blue', 'yellow'];
-const STATUS_TEXT = { check: 'Шах!', checkmate: 'Мат', stalemate: 'Пат', draw: 'Ничья' };
-const GAME_OVER = ['checkmate', 'stalemate', 'draw'];
+const START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+const GAME_OVER_TEXT = { checkmate: 'Мат', stalemate: 'Пат', draw: 'Ничья' };
+const DRAW_REASON_TEXT = {
+  insufficient_material: 'мало фигур для мата',
+  fivefold_repetition: 'пятикратное повторение',
+  seventyfive_moves: '75 ходов без взятий и ходов пешек',
+};
+const CLAIM_TEXT = {
+  threefold_repetition: 'троекратное повторение',
+  fifty_moves: '50 ходов без взятий и ходов пешек',
+};
+const CONFIRM_MS = 3000; // столько ждём второго нажатия «Новая за…»
+const DOUBLE_CLICK_MS = 400; // второе нажатие быстрее — это двойной клик, а не подтверждение
+const confirmTimers = new Map();
 
 const el = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
 let state = null;
-let moveInFlight = false; // идёт запрос хода к бэку: поздний анализ старой позиции игнорируем
+let pendingAnalysis = null; // анализ позиции, чьё состояние ещё не дошло до фронта
 
 const cg = Chessground(el('board'), {
   premovable: { enabled: false },
@@ -33,19 +45,16 @@ async function call(fn) {
   }
 }
 
-async function onUserMove(orig, dest) {
-  clearHints(); // старые стрелки больше не актуальны
-  moveInFlight = true;
-  try {
-    await call(() => api().move(orig, dest));
-  } finally {
-    moveInFlight = false;
-  }
+function onUserMove(orig, dest) {
+  // старые стрелки сотрёт render, когда придёт новая позиция
+  return call(() => api().move(orig, dest));
 }
 
 function render(next) {
-  // подсказки сбрасываем, только если позиция действительно сменилась
-  const changed = !state || next.fen !== state.fen || next.my_color !== state.my_color;
+  // Ответы бэка приходят из разных потоков и могут обогнать друг друга:
+  // состояние со старым номером версии уже неактуально
+  if (state && next.rev < state.rev) return;
+  const changed = !state || next.rev !== state.rev;
   state = next;
   cg.set({
     fen: state.fen,
@@ -57,6 +66,12 @@ function render(next) {
   });
   if (changed) clearHints(); // свежие подсказки придут в onAnalysis
   renderStatus();
+  // Анализ этой позиции мог прийти раньше её состояния
+  if (pendingAnalysis && pendingAnalysis.rev <= state.rev) {
+    const result = pendingAnalysis;
+    pendingAnalysis = null;
+    if (result.rev === state.rev) showAnalysis(result);
+  }
 }
 
 function clearHints() {
@@ -65,17 +80,24 @@ function clearHints() {
   el('depth').textContent = '';
 }
 
-function renderStatus() {
-  const turn = state.turn === state.my_color ? 'Твой ход' : 'Ход соперника — повтори его';
-  const extra = STATUS_TEXT[state.status];
-  if (GAME_OVER.includes(state.status)) {
-    el('status').textContent = `Игра окончена: ${extra}`;
-  } else {
-    el('status').textContent = extra ? `${turn} · ${extra}` : turn;
+function statusText() {
+  const over = GAME_OVER_TEXT[state.status];
+  if (over) {
+    const reason = DRAW_REASON_TEXT[state.draw_reason];
+    return `Игра окончена: ${over}${reason ? ` (${reason})` : ''}`;
   }
+  const parts = [state.turn === state.my_color ? 'Твой ход' : 'Ход соперника — повтори его'];
+  if (state.status === 'check') parts.push('Шах!');
+  const claim = CLAIM_TEXT[state.claimable_draw];
+  if (claim) parts.push(`можно потребовать ничью: ${claim}`);
+  return parts.join(' · ');
+}
+
+function renderStatus() {
+  el('status').textContent = statusText();
   showError(el('engine-error'), state.engine_error);
   showError(el('action-error'), state.error);
-  el('history').textContent = formatHistory(state.history);
+  el('history').textContent = formatHistory(state.history, state.history_start);
 }
 
 function showError(node, text) {
@@ -83,10 +105,18 @@ function showError(node, text) {
   node.textContent = text ?? '';
 }
 
-function formatHistory(sans) {
+function formatHistory(sans, start) {
+  // После FEN с ходом чёрных первая запись выглядит как «12... e5»
   const parts = [];
-  for (let i = 0; i < sans.length; i += 2) {
-    parts.push(`${i / 2 + 1}. ${sans[i]}${sans[i + 1] ? ' ' + sans[i + 1] : ''}`);
+  let number = start.number;
+  let i = 0;
+  if (start.turn === 'black' && sans.length > 0) {
+    parts.push(`${number}... ${sans[0]}`);
+    number += 1;
+    i = 1;
+  }
+  for (; i < sans.length; i += 2, number += 1) {
+    parts.push(`${number}. ${sans[i]}${sans[i + 1] ? ' ' + sans[i + 1] : ''}`);
   }
   return parts.join('  ');
 }
@@ -94,12 +124,12 @@ function formatHistory(sans) {
 function formatScore({ cp, mate }) {
   if (mate !== null) return mate > 0 ? `мат в ${mate}` : `тебе мат в ${-mate}`;
   const pawns = cp / 100;
+  if (Math.abs(pawns) < 0.05) return '0.0'; // иначе −0.03 показалось бы как «-0.0»
   return `${pawns > 0 ? '+' : ''}${pawns.toFixed(1)}`;
 }
 
-// Бэк вызывает эту функцию через evaluate_js по мере расчёта
-window.onAnalysis = (result) => {
-  if (moveInFlight || !state || result.fen !== state.fen || state.turn !== state.my_color) return; // устаревший анализ
+function showAnalysis(result) {
+  if (state.turn !== state.my_color) return; // на ходу соперника подсказки не нужны
   const shapes = result.lines.map((line, i) => ({
     orig: line.uci.slice(0, 2),
     dest: line.uci.slice(2, 4),
@@ -114,21 +144,68 @@ window.onAnalysis = (result) => {
     el('lines').appendChild(li);
   });
   el('depth').textContent = `Глубина ${result.depth}`;
+}
+
+// Бэк вызывает эту функцию через evaluate_js по мере расчёта
+window.onAnalysis = (result) => {
+  if (state && result.rev < state.rev) return; // анализ старой позиции
+  if (!state || result.rev > state.rev) {
+    // ответ на действие ещё в пути — покажем анализ, когда придёт состояние
+    if (!pendingAnalysis || result.rev >= pendingAnalysis.rev) pendingAnalysis = result;
+    return;
+  }
+  showAnalysis(result);
 };
 
-el('new-white').addEventListener('click', () => call(() => api().new_game('white')));
-el('new-black').addEventListener('click', () => call(() => api().new_game('black')));
+// Бэк сообщает о падении движка сразу, не дожидаясь следующего действия
+window.onEngineError = (message) => {
+  clearHints();
+  showError(el('engine-error'), message);
+};
+
+// «Новая за…» стирает партию: если терять есть что, просим нажать второй раз
+function confirmNewGame(button, color) {
+  const hasGame = state && (state.history.length > 0 || state.fen !== START_FEN);
+  if (hasGame && !button.dataset.label) {
+    button.dataset.label = button.textContent;
+    button.dataset.armedAt = String(Date.now());
+    button.textContent = 'Точно? Нажми ещё раз';
+    confirmTimers.set(button, setTimeout(() => resetConfirm(button), CONFIRM_MS));
+    return;
+  }
+  if (hasGame && Date.now() - Number(button.dataset.armedAt) < DOUBLE_CLICK_MS) return; // двойной клик
+  resetConfirm(button);
+  call(() => api().new_game(color));
+}
+
+function resetConfirm(button) {
+  clearTimeout(confirmTimers.get(button));
+  confirmTimers.delete(button);
+  if (button.dataset.label) {
+    button.textContent = button.dataset.label;
+    delete button.dataset.label;
+    delete button.dataset.armedAt;
+  }
+}
+
+const loadFen = () => call(() => api().load_fen(el('fen-input').value.trim()));
+
+el('new-white').addEventListener('click', (e) => confirmNewGame(e.currentTarget, 'white'));
+el('new-black').addEventListener('click', (e) => confirmNewGame(e.currentTarget, 'black'));
 el('undo').addEventListener('click', () => call(() => api().undo()));
 el('on-top').addEventListener('change', (e) => call(() => api().set_on_top(e.target.checked)));
-el('load-fen').addEventListener('click', () => call(() => api().load_fen(el('fen-input').value.trim())));
+el('load-fen').addEventListener('click', loadFen);
+el('fen-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.repeat) loadFen();
+});
 
 document.addEventListener('keydown', (e) => {
   // в текстовом поле Ctrl+Z — это отмена ввода, а не отмена хода; чекбокс не в счёт
   if (e.target?.matches?.('textarea, input:not([type="checkbox"])')) return;
-  // KeyZ не зависит от раскладки (работает и на русской)
-  if (e.ctrlKey && e.code === 'KeyZ') {
+  // KeyZ не зависит от раскладки; Shift/Alt — другие сочетания; автоповтор не отменяет пачку ходов
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === 'KeyZ') {
     e.preventDefault();
-    call(() => api().undo());
+    if (!e.repeat) call(() => api().undo());
   }
 });
 
