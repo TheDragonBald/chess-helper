@@ -66,7 +66,7 @@ helper was started from.
   by itself only on checkmate, stalemate, insufficient material, fivefold
   repetition or 75 such moves; after that the board accepts no more moves.
 - If Stockfish crashes, the panel says so right away and the helper restarts
-  it on your next move. If it crashes again before a successful analysis, the
+  it the next time it is your turn. If it crashes again before a successful analysis, the
   hints stay off until you restart the helper.
 
 ## Tests
@@ -149,7 +149,7 @@ uv run app.py
   пятикратным повторением или 75 такими ходами — после этого доска не
   принимает ходы.
 - Если Stockfish упадёт, панель сразу об этом скажет, а помогатор перезапустит
-  его на твоём следующем ходу. Если движок упадёт снова до первого удачного
+  его, когда снова будет твой ход. Если движок упадёт снова до первого удачного
   анализа, подсказки отключатся до перезапуска помогатора.
 
 ## Тесты

@@ -100,7 +100,8 @@ class EngineAnalyzer:
         self.error = None
         return True
 
-    def analyze(self, fen: str, pov: chess.Color, on_update: OnUpdate) -> None:
+    def analyze(self, position: chess.Board | str, pov: chess.Color, on_update: OnUpdate) -> None:
+        # position — доска партии с историей ходов (так Stockfish видит повторения) или FEN.
         # Весь метод под _api_lock: вызовы приходят из разных потоков pywebview
         with self._api_lock:
             self.stop()
@@ -123,7 +124,8 @@ class EngineAnalyzer:
             with self._lock:
                 self._token += 1
                 token = self._token
-            board = chess.Board(fen)
+            # Своя копия: воркер не должен видеть дальнейшие ходы партии
+            board = position.copy() if isinstance(position, chess.Board) else chess.Board(position)
             thread = threading.Thread(
                 target=self._run, args=(engine, board, pov, on_update, token), daemon=True
             )
@@ -232,7 +234,11 @@ class EngineAnalyzer:
         try:
             delivered = self._run_once(engine, board, pov, on_update, token)
         except (chess.engine.EngineError, TimeoutError) as exc:  # EngineError включает EngineTerminatedError
-            self._handle_crash(engine, exc)
+            # Ошибка из __exit__ анализа («event loop dead») перекрывает настоящую причину,
+            # а та остаётся в __context__
+            original = exc.__context__
+            reason = original if isinstance(original, (chess.engine.EngineError, TimeoutError)) else exc
+            self._handle_crash(engine, reason)
         except Exception as exc:
             # Ошибка в нашем коде, а не в Stockfish: движок исправен, его не трогаем
             log.exception("Ошибка при разборе анализа")
@@ -254,13 +260,13 @@ class EngineAnalyzer:
         except Exception:
             log.exception("Не удалось закрыть упавший Stockfish")
         if restart:
-            self.error = f"Stockfish упал: {exc}. Перезапущу его на следующем ходе"
+            self.error = f"Stockfish упал: {exc}. Перезапущу его, когда снова будет твой ход"
         else:
             self.error = f"Stockfish снова упал: {exc}. Подсказки отключены — перезапусти помогатор"
         self._notify_error(self.error)
 
     def _run_once(self, engine, board: chess.Board, pov: chess.Color, on_update: OnUpdate, token: int) -> bool:
-        # Возвращает True, если в окно ушёл хотя бы один результат
+        # Возвращает True, если курьеру отдан хотя бы один результат
         limit = chess.engine.Limit(depth=MAX_DEPTH, time=MAX_TIME)
         expected = min(MULTIPV, board.legal_moves.count())
         last_depth = 0

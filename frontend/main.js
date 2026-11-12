@@ -14,6 +14,8 @@ const CLAIM_TEXT = {
   fifty_moves: '50 ходов без взятий и ходов пешек',
 };
 const CONFIRM_MS = 3000; // столько ждём второго нажатия «Новая за…»
+const DOUBLE_CLICK_MS = 400; // второе нажатие быстрее — это двойной клик, а не подтверждение
+const confirmTimers = new Map();
 
 const el = (id) => document.getElementById(id);
 const api = () => window.pywebview.api;
@@ -166,18 +168,23 @@ function confirmNewGame(button, color) {
   const hasGame = state && (state.history.length > 0 || state.fen !== START_FEN);
   if (hasGame && !button.dataset.label) {
     button.dataset.label = button.textContent;
+    button.dataset.armedAt = String(Date.now());
     button.textContent = 'Точно? Нажми ещё раз';
-    setTimeout(() => resetConfirm(button), CONFIRM_MS);
+    confirmTimers.set(button, setTimeout(() => resetConfirm(button), CONFIRM_MS));
     return;
   }
+  if (hasGame && Date.now() - Number(button.dataset.armedAt) < DOUBLE_CLICK_MS) return; // двойной клик
   resetConfirm(button);
   call(() => api().new_game(color));
 }
 
 function resetConfirm(button) {
+  clearTimeout(confirmTimers.get(button));
+  confirmTimers.delete(button);
   if (button.dataset.label) {
     button.textContent = button.dataset.label;
     delete button.dataset.label;
+    delete button.dataset.armedAt;
   }
 }
 
@@ -189,7 +196,7 @@ el('undo').addEventListener('click', () => call(() => api().undo()));
 el('on-top').addEventListener('change', (e) => call(() => api().set_on_top(e.target.checked)));
 el('load-fen').addEventListener('click', loadFen);
 el('fen-input').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') loadFen();
+  if (e.key === 'Enter' && !e.repeat) loadFen();
 });
 
 document.addEventListener('keydown', (e) => {

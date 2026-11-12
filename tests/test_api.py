@@ -11,11 +11,13 @@ from backend.game import GameSession
 class FakeEngine:
     def __init__(self):
         self.calls = []
+        self.boards = []
         self.error = None
         self.on_update = None
 
-    def analyze(self, fen, pov, on_update):
-        self.calls.append(("analyze", fen, pov))
+    def analyze(self, position, pov, on_update):
+        self.calls.append(("analyze", position.fen(), pov))
+        self.boards.append(position)
         self.on_update = on_update
 
     def stop(self):
@@ -56,6 +58,16 @@ def test_my_turn_as_black_starts_analysis(setup):
     api.new_game("black")
     state = api.move("e2", "e4")
     assert engine.calls[-1] == ("analyze", state["fen"], chess.BLACK)
+
+
+def test_engine_gets_the_move_history(setup):
+    api, engine, _, _ = setup
+    api.new_game("white")
+    api.move("e2", "e4")
+    api.move("e7", "e5")
+    board = engine.boards[-1]
+    assert [m.uci() for m in board.move_stack] == ["e2e4", "e7e5"]
+    assert board.root().fen() == chess.STARTING_FEN
 
 
 def test_illegal_move_does_not_touch_engine(setup):

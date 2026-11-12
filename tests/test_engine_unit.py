@@ -23,19 +23,23 @@ def info(move="e2e4", cp=None, mate=None, depth=10, multipv=1, pov=chess.WHITE):
 class FakeAnalysis:
     """Подмена SimpleAnalysisResult: отдаёт заданные info, может «думать» до stop() и «падать»."""
 
-    def __init__(self, infos=(), crash=None, block=False, stop_error=None):
+    def __init__(self, infos=(), crash=None, block=False, stop_error=None, exit_error=None):
         self.multipv = list(infos)
         self._infos = list(infos)
         self._crash = crash
         self._block = block
         self._stop_error = stop_error
+        self._exit_error = exit_error
         self._released = threading.Event()
         self.started = threading.Event()
 
     def __enter__(self):
         return self
 
-    def __exit__(self, *exc):
+    def __exit__(self, exc_type, exc, tb):
+        # Как python-chess: при выходе после падения может бросить своё исключение
+        if exc_type is not None and self._exit_error is not None:
+            raise self._exit_error
         return False
 
     def __iter__(self):
@@ -60,13 +64,17 @@ class FakeEngine:
         self._fail_configure = fail_configure
         self._configure_delay = configure_delay
         self.closed = False
+        self.boards = []
+        self.configure_started = threading.Event()
 
     def configure(self, options):
+        self.configure_started.set()
         time.sleep(self._configure_delay)
         if self._fail_configure:
             raise chess.engine.EngineError("engine does not support option Threads")
 
     def analysis(self, board, limit=None, multipv=None):
+        self.boards.append(board)
         return self._analyses.pop(0)
 
     def quit(self):
@@ -223,7 +231,8 @@ def test_close_during_slow_restart_still_closes_new_engine(fake_engines, monkeyp
     # close() не дождался замка, пока перезапуск висит в configure: новый движок всё равно закрыт
     monkeypatch.setattr(engine_module, "CLOSE_TIMEOUT", 0.2)
     path, queue, started = fake_engines
-    queue.extend([FakeEngine([crash()]), FakeEngine([ok()], configure_delay=0.6)])
+    slow = FakeEngine([ok()], configure_delay=0.6)
+    queue.extend([FakeEngine([crash()]), slow])
     analyzer = EngineAnalyzer(path)
     analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
     assert analyzer.wait(timeout=5)
@@ -231,7 +240,7 @@ def test_close_during_slow_restart_still_closes_new_engine(fake_engines, monkeyp
         target=analyzer.analyze, args=(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
     )
     restarter.start()
-    time.sleep(0.1)  # перезапуск уже внутри configure и держит замок
+    assert slow.configure_started.wait(timeout=5)  # перезапуск уже внутри configure и держит замок
     analyzer.close()
     restarter.join(timeout=5)
     assert not restarter.is_alive()
@@ -285,4 +294,33 @@ def test_internal_error_is_not_reported_as_engine_crash(fake_engines, monkeypatc
     assert errors == ["Ошибка анализа: сломанный разбор"]
     assert analyzer.error is None
     assert started[0].closed is False
+    analyzer.close()
+
+
+def test_analysis_gets_a_board_with_history(fake_engines):
+    path, queue, started = fake_engines
+    queue.append(FakeEngine([ok()]))
+    analyzer = EngineAnalyzer(path)
+    board = chess.Board()
+    for uci in ("g1f3", "g8f6", "f3g1", "f6g8"):
+        board.push_uci(uci)
+    analyzer.analyze(board, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    seen = started[0].boards[0]
+    assert [m.uci() for m in seen.move_stack] == ["g1f3", "g8f6", "f3g1", "f6g8"]
+    assert seen is not board  # движок работает с копией, а не с доской партии
+    analyzer.close()
+
+
+def test_crash_message_keeps_the_original_reason(fake_engines):
+    path, queue, _ = fake_engines
+    died = chess.engine.EngineTerminatedError("engine process died unexpectedly (exit code: 3)")
+    loop_dead = chess.engine.EngineError("engine event loop dead")
+    queue.append(FakeEngine([FakeAnalysis(crash=died, exit_error=loop_dead)]))
+    errors = []
+    analyzer = EngineAnalyzer(path, on_error=errors.append)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    assert "exit code: 3" in errors[-1]
+    assert "event loop dead" not in errors[-1]
     analyzer.close()

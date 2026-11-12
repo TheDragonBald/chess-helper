@@ -63,7 +63,7 @@ class Api:
             rev = self._rev
             push = self._push_analysis
             self._engine.analyze(
-                self._game.board.fen(),
+                self._game.board.copy(),  # с историей ходов, а не только FEN
                 self._game.my_color,
                 lambda result: push({**result, "rev": rev}),
             )
