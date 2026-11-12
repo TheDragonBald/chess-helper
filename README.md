@@ -42,5 +42,7 @@ https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1 скача�
 
 ## Лицензии
 
+Проект распространяется под GPL-3.0, текст — в файле [LICENSE](LICENSE).
+
 Доска — [chessground](https://github.com/lichess-org/chessground) (GPL-3.0),
 файлы лежат в `frontend/vendor/chessground/`.
