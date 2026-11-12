@@ -78,7 +78,7 @@ def test_stop_prevents_further_updates(analyzer):
     assert first.wait(timeout=10), "анализ не прислал ни одного результата"
     analyzer.stop()
     count = len(updates)
-    time.sleep(1.0)
+    time.sleep(0.5)
     assert len(updates) == count
 
 

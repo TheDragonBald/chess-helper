@@ -21,12 +21,16 @@ def info(move="e2e4", cp=None, mate=None, depth=10, multipv=1, pov=chess.WHITE):
 
 
 class FakeAnalysis:
-    """Подмена SimpleAnalysisResult: отдаёт заданные info и, если нужно, «падает»."""
+    """Подмена SimpleAnalysisResult: отдаёт заданные info, может «думать» до stop() и «падать»."""
 
-    def __init__(self, infos=(), crash=None):
+    def __init__(self, infos=(), crash=None, block=False, stop_error=None):
         self.multipv = list(infos)
         self._infos = list(infos)
         self._crash = crash
+        self._block = block
+        self._stop_error = stop_error
+        self._released = threading.Event()
+        self.started = threading.Event()
 
     def __enter__(self):
         return self
@@ -35,23 +39,30 @@ class FakeAnalysis:
         return False
 
     def __iter__(self):
+        self.started.set()
         yield from self._infos
+        if self._block:
+            self._released.wait(timeout=5)  # «думает», пока анализ не остановят
         if self._crash is not None:
             raise self._crash
 
     def stop(self):
-        pass
+        self._released.set()
+        if self._stop_error is not None:
+            raise self._stop_error
 
 
 class FakeEngine:
     """Подмена SimpleEngine: по анализу на каждый вызов analysis()."""
 
-    def __init__(self, analyses=(), fail_configure=False):
+    def __init__(self, analyses=(), fail_configure=False, configure_delay=0.0):
         self._analyses = list(analyses)
         self._fail_configure = fail_configure
+        self._configure_delay = configure_delay
         self.closed = False
 
     def configure(self, options):
+        time.sleep(self._configure_delay)
         if self._fail_configure:
             raise chess.engine.EngineError("engine does not support option Threads")
 
@@ -128,18 +139,18 @@ def test_crash_is_reported_and_engine_restarts_only_once(fake_engines):
     analyzer = EngineAnalyzer(path, on_error=errors.append)
 
     analyzer.analyze(chess.STARTING_FEN, chess.WHITE, updates.append)
-    analyzer.wait(timeout=5)
+    assert analyzer.wait(timeout=5)
     assert errors[-1].startswith("Stockfish упал")
     assert analyzer.error == errors[-1]
     assert started[0].closed is True
 
     analyzer.analyze(chess.STARTING_FEN, chess.WHITE, updates.append)  # единственный перезапуск
-    analyzer.wait(timeout=5)
+    assert analyzer.wait(timeout=5)
     assert len(started) == 2
     assert errors[-1].startswith("Stockfish снова упал")
 
     analyzer.analyze(chess.STARTING_FEN, chess.WHITE, updates.append)  # больше не поднимаем
-    analyzer.wait(timeout=5)
+    assert analyzer.wait(timeout=5)
     assert len(started) == 2
     assert updates == []
     analyzer.close()
@@ -153,7 +164,7 @@ def test_successful_analysis_allows_next_restart(fake_engines):
     # падение → перезапуск и успех → падение → снова перезапуск и успех
     for _ in range(4):
         analyzer.analyze(chess.STARTING_FEN, chess.WHITE, updates.append)
-        analyzer.wait(timeout=5)
+        assert analyzer.wait(timeout=5)
     assert len(started) == 3
     assert [e.split(":")[0] for e in errors] == ["Stockfish упал", "Stockfish упал"]
     assert len(updates) == 2
@@ -161,15 +172,28 @@ def test_successful_analysis_allows_next_restart(fake_engines):
     analyzer.close()
 
 
-def test_close_twice_returns_immediately(fake_engines):
+def test_second_close_does_not_wait_again(fake_engines, monkeypatch):
+    # Первый close() ждёт зависшую доставку; второй (из finally в app.py) ждать не должен
+    monkeypatch.setattr(engine_module, "STOP_TIMEOUT", 0.2)
     path, queue, started = fake_engines
-    queue.append(FakeEngine())
+    queue.append(FakeEngine([ok()]))
     analyzer = EngineAnalyzer(path)
-    analyzer.close()
-    assert started[0].closed is True
-    began = time.monotonic()
-    analyzer.close()
-    assert time.monotonic() - began < 0.1
+    entered, release = threading.Event(), threading.Event()
+
+    def stuck(_result):
+        entered.set()
+        release.wait()
+
+    try:
+        analyzer.analyze(chess.STARTING_FEN, chess.WHITE, stuck)
+        assert entered.wait(timeout=5)
+        analyzer.close()
+        assert started[0].closed is True
+        began = time.monotonic()
+        analyzer.close()
+        assert time.monotonic() - began < 0.1
+    finally:
+        release.set()
 
 
 def test_stop_and_close_do_not_hang_on_stuck_delivery(fake_engines, monkeypatch):
@@ -193,3 +217,72 @@ def test_stop_and_close_do_not_hang_on_stuck_delivery(fake_engines, monkeypatch)
         assert time.monotonic() - began < 2.0
     finally:
         release.set()
+
+
+def test_close_during_slow_restart_still_closes_new_engine(fake_engines, monkeypatch):
+    # close() не дождался замка, пока перезапуск висит в configure: новый движок всё равно закрыт
+    monkeypatch.setattr(engine_module, "CLOSE_TIMEOUT", 0.2)
+    path, queue, started = fake_engines
+    queue.extend([FakeEngine([crash()]), FakeEngine([ok()], configure_delay=0.6)])
+    analyzer = EngineAnalyzer(path)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    restarter = threading.Thread(
+        target=analyzer.analyze, args=(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    )
+    restarter.start()
+    time.sleep(0.1)  # перезапуск уже внутри configure и держит замок
+    analyzer.close()
+    restarter.join(timeout=5)
+    assert not restarter.is_alive()
+    assert started[1].closed is True
+
+
+def test_stopping_a_crashed_analysis_does_not_raise(fake_engines):
+    path, queue, _ = fake_engines
+    dead = chess.engine.EngineTerminatedError("engine process died unexpectedly")
+    blocking = FakeAnalysis(block=True, stop_error=dead)
+    queue.append(FakeEngine([blocking]))
+    analyzer = EngineAnalyzer(path)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert blocking.started.wait(timeout=5)
+    analyzer.stop()  # не должно бросить EngineTerminatedError
+    assert analyzer.wait(timeout=5)
+    analyzer.close()
+
+
+def test_interrupted_analysis_does_not_restore_restart(fake_engines):
+    path, queue, started = fake_engines
+    blocking = FakeAnalysis(block=True)
+    queue.extend([FakeEngine([crash()]), FakeEngine([blocking, crash()]), FakeEngine([ok()])])
+    errors = []
+    analyzer = EngineAnalyzer(path, on_error=errors.append)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)  # падение
+    assert analyzer.wait(timeout=5)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)  # перезапуск, анализ «думает»
+    assert blocking.started.wait(timeout=5)
+    # ход до первого результата прерывает анализ, следующий анализ падает
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    assert errors[-1].startswith("Stockfish снова упал")
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    assert len(started) == 2
+    analyzer.close()
+
+
+def test_internal_error_is_not_reported_as_engine_crash(fake_engines, monkeypatch):
+    def broken(*args):
+        raise ValueError("сломанный разбор")
+
+    monkeypatch.setattr(engine_module, "build_result", broken)
+    path, queue, started = fake_engines
+    queue.append(FakeEngine([ok()]))
+    errors = []
+    analyzer = EngineAnalyzer(path, on_error=errors.append)
+    analyzer.analyze(chess.STARTING_FEN, chess.WHITE, lambda _r: None)
+    assert analyzer.wait(timeout=5)
+    assert errors == ["Ошибка анализа: сломанный разбор"]
+    assert analyzer.error is None
+    assert started[0].closed is False
+    analyzer.close()
