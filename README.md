@@ -71,6 +71,7 @@ helper was started from.
 - If Stockfish crashes, the panel says so right away and the helper restarts
   it the next time it is your turn. If it crashes again before a successful analysis, the
   hints stay off until you restart the helper.
+- The author (I am) believes this application is borderline cheating, but in the future, this project will expand, allowing users not only to copy engine moves but also to learn, train, customize the interface, and evaluate both their own and others' moves.
 
 ## Tests
 
@@ -156,6 +157,7 @@ uv run app.py
 - Если Stockfish упадёт, панель сразу об этом скажет, а помогатор перезапустит
   его, когда снова будет твой ход. Если движок упадёт снова до первого удачного
   анализа, подсказки отключатся до перезапуска помогатора.
+- Автор (я) считает, что это приложение на грани с читами, но в дальнейшем этот проект будет расширятся, и можно будет не только копировать ходы движка, а учиться, тренироваться, менять интерфейс и оценивать как чужие, так и свои ходы.
 
 ## Тесты
 
