@@ -1,3 +1,6 @@
+import sys
+import threading
+
 import chess
 import pytest
 
@@ -104,3 +107,43 @@ def test_only_api_methods_are_public(setup):
     api, _, _, _ = setup
     public = {name for name in dir(api) if not name.startswith("_")}
     assert public == {"get_state", "new_game", "move", "undo", "load_fen", "set_on_top"}
+
+
+def test_concurrent_calls_do_not_corrupt_board(setup):
+    api, _, _, _ = setup
+    api.new_game("white")
+    errors = []
+    old_hook = threading.excepthook
+    old_interval = sys.getswitchinterval()
+    threading.excepthook = lambda args: errors.append(args.exc_value)
+
+    def hammer(moves):
+        for i in range(300):
+            api.undo()
+            api.move(*moves[i % 2])
+            api.get_state()
+
+    pairs = [
+        [("g1", "f3"), ("f3", "g1")],
+        [("g8", "f6"), ("f6", "g8")],
+        [("g1", "f3"), ("f3", "g1")],
+        [("g8", "f6"), ("f6", "g8")],
+        [("g1", "f3"), ("f3", "g1")],
+    ]
+    try:
+        sys.setswitchinterval(1e-6)
+        threads = [threading.Thread(target=hammer, args=(m,)) for m in pairs]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+    finally:
+        sys.setswitchinterval(old_interval)
+        threading.excepthook = old_hook
+
+    assert errors == []
+    board = api._game.board
+    replay = board.root()
+    for move in board.move_stack:
+        replay.push(move)
+    assert replay.fen() == board.fen()

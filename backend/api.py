@@ -1,6 +1,7 @@
 """Методы, которые фронт вызывает через window.pywebview.api."""
 from __future__ import annotations
 
+import threading
 from typing import Callable
 
 
@@ -17,33 +18,41 @@ class Api:
         self._engine = engine
         self._push_analysis = push_analysis
         self._set_on_top = set_on_top
+        # pywebview вызывает каждый метод в отдельном потоке, а GameSession не потокобезопасна
+        self._lock = threading.Lock()
 
     def get_state(self) -> dict:
-        return self._state()
+        with self._lock:
+            return self._state()
 
     def new_game(self, my_color: str) -> dict:
-        self._game.new_game(my_color)
-        self._refresh_analysis()
-        return self._state()
+        with self._lock:
+            self._game.new_game(my_color)
+            self._refresh_analysis()
+            return self._state()
 
     def move(self, from_sq: str, to_sq: str) -> dict:
-        if self._game.move(from_sq, to_sq):
-            self._refresh_analysis()
-        return self._state()
+        with self._lock:
+            if self._game.move(from_sq, to_sq):
+                self._refresh_analysis()
+            return self._state()
 
     def undo(self) -> dict:
-        if self._game.undo():
-            self._refresh_analysis()
-        return self._state()
+        with self._lock:
+            if self._game.undo():
+                self._refresh_analysis()
+            return self._state()
 
     def load_fen(self, fen: str) -> dict:
-        if self._game.load_fen(fen):
-            self._refresh_analysis()
-        return self._state()
+        with self._lock:
+            if self._game.load_fen(fen):
+                self._refresh_analysis()
+            return self._state()
 
     def set_on_top(self, flag: bool) -> dict:
-        self._set_on_top(bool(flag))
-        return self._state()
+        with self._lock:
+            self._set_on_top(bool(flag))
+            return self._state()
 
     def _refresh_analysis(self) -> None:
         # Подсказки нужны только на ходу пользователя

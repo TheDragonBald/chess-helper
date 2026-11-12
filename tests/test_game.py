@@ -144,3 +144,29 @@ def test_load_fen_keeps_my_color():
     g.new_game("black")
     assert g.load_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
     assert g.state()["my_color"] == "black"
+
+
+def test_possible_repetition_is_still_playing():
+    # Повтор лишь возможен (можно заявить), но не произошёл — партия продолжается
+    g = GameSession()
+    g.new_game("black")
+    play(g, "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1")
+    assert g.status() == "playing"
+    assert g.is_my_turn() is True
+
+
+def test_actual_threefold_repetition_is_draw():
+    g = GameSession()
+    g.new_game("black")
+    play(g, "g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1", "f6g8")
+    assert g.status() == "draw"
+
+
+def test_insufficient_material_is_draw(game):
+    assert game.load_fen("8/8/8/8/8/8/8/k1K5 w - - 0 1") is True
+    assert game.status() == "draw"
+
+
+def test_fen_without_kings_is_rejected(game):
+    assert game.load_fen("8/8/8/8/8/8/8/8 w - - 0 1") is False
+    assert game.state()["fen"] == START_FEN

@@ -69,7 +69,8 @@ class GameSession:
             return "checkmate"
         if self.board.is_stalemate():
             return "stalemate"
-        if self.board.is_game_over(claim_draw=True):
+        # Без claim_draw: возможность заявить повтор — ещё не ничья
+        if self.board.is_game_over() or self.board.is_repetition(3) or self.board.is_fifty_moves():
             return "draw"
         if self.board.is_check():
             return "check"
