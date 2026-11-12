@@ -82,9 +82,9 @@ uv run app.py
 
 - Только Windows.
 - Ходы вводятся вручную: экран и Discord помогатор не читает.
-- Превращение только в ферзя; другую фигуру можно поставить через FEN.
-- Нет часов, сохранения партий и экспорта PGN.
-- Интерфейс на русском.
+- Превращение только в ферзя; другую фигуру можно поставить через FEN ([#16](https://github.com/TheDragonBald/chess-helper/issues/16)).
+- Нет часов, сохранения партий и экспорта PGN ([#17](https://github.com/TheDragonBald/chess-helper/issues/17)).
+- Интерфейс на русском ([#15](https://github.com/TheDragonBald/chess-helper/issues/15)).
 
 ## История
 
@@ -99,12 +99,32 @@ uv run app.py
 
 ## Планы
 
-Идеи и доработки — в issues репозитория:
+Идеи и доработки — в issues репозитория; к работе по ним пока не приступали.
 
+**Запуск и сборка**
 - [#2](https://github.com/TheDragonBald/chess-helper/issues/2) — заставка с выбором: продолжить в окне или открыть в браузере;
 - [#3](https://github.com/TheDragonBald/chess-helper/issues/3) — мобильная версия для браузера телефона (только после #2);
+- [#7](https://github.com/TheDragonBald/chess-helper/issues/7) — сборка в один exe без Python и uv;
+- [#9](https://github.com/TheDragonBald/chess-helper/issues/9) — переход на Stockfish sf_19.
+
+**Игра и подсказки**
+- [#16](https://github.com/TheDragonBald/chess-helper/issues/16) — выбор фигуры при превращении пешки;
+- [#18](https://github.com/TheDragonBald/chess-helper/issues/18) — оценка твоего хода: неточность, ошибка или зевок;
+- [#19](https://github.com/TheDragonBald/chess-helper/issues/19) — шкала оценки у доски и график оценки за партию;
+- [#20](https://github.com/TheDragonBald/chess-helper/issues/20) — угроза соперника;
+- [#21](https://github.com/TheDragonBald/chess-helper/issues/21) — режим тренировки: подсказки скрыты, пока не попросишь.
+
+**Удобство**
+- [#13](https://github.com/TheDragonBald/chess-helper/issues/13) — запоминать размер и положение окна и «Поверх всех окон»;
+- [#14](https://github.com/TheDragonBald/chess-helper/issues/14) — настройки движка: число линий, глубина, время, потоки;
+- [#15](https://github.com/TheDragonBald/chess-helper/issues/15) — английский интерфейс;
+- [#17](https://github.com/TheDragonBald/chess-helper/issues/17) — копирование FEN, экспорт в PGN и сохранение партии.
+
+**Надёжность и разработка**
 - [#4](https://github.com/TheDragonBald/chess-helper/issues/4) — мелкие доработки и тесты по итогам ревью;
-- [#7](https://github.com/TheDragonBald/chess-helper/issues/7) — сборка в один exe без Python и uv.
+- [#10](https://github.com/TheDragonBald/chess-helper/issues/10) — GitHub Actions: тесты на каждый PR;
+- [#11](https://github.com/TheDragonBald/chess-helper/issues/11) — линтер ruff и Dependabot;
+- [#12](https://github.com/TheDragonBald/chess-helper/issues/12) — лог в файл и дамп потоков при зависании.
 
 ## Лицензия
 

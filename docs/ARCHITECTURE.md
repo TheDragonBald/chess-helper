@@ -266,7 +266,8 @@ GUI автоматически не тестируется: фронт пров�
 ## Известные ограничения
 
 - Только Windows: pywebview на WinForms + WebView2, сборка Stockfish под Windows.
-- Превращение пешки — всегда в ферзя; иную фигуру можно поставить через FEN.
-- Интерфейс на русском.
-- Обход `apply_on_top` нужен до выхода pywebview новее 6.2.1.
-- Открытые доработки — в issues: [#2](https://github.com/TheDragonBald/chess-helper/issues/2) заставка «окно или браузер», [#3](https://github.com/TheDragonBald/chess-helper/issues/3) мобильная версия, [#4](https://github.com/TheDragonBald/chess-helper/issues/4) мелочи из ревью, [#7](https://github.com/TheDragonBald/chess-helper/issues/7) сборка в exe.
+- Превращение пешки — всегда в ферзя; иную фигуру можно поставить через FEN ([#16](https://github.com/TheDragonBald/chess-helper/issues/16)).
+- Интерфейс на русском ([#15](https://github.com/TheDragonBald/chess-helper/issues/15)).
+- Обход `apply_on_top` нужен до выхода pywebview новее 6.2.1 ([#11](https://github.com/TheDragonBald/chess-helper/issues/11)).
+- Логи только в консоли, без файла ([#12](https://github.com/TheDragonBald/chess-helper/issues/12)).
+- Открытые доработки и идеи — в issues; список по темам — в разделе [«Планы»](ABOUT_PROJECT.md#планы) файла ABOUT_PROJECT.
