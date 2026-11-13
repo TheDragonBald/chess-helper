@@ -70,17 +70,17 @@ packaging/
   licenses/                  тексты лицензий, которых нет в метаданных пакетов
 .github/workflows/
   release.yml                сборка по тегу v* → черновик релиза; вручную — пробный прогон
-tests/
+tests/                       тесты pytest (всего 122)
   test_game.py               правила партии (31 тест)
   test_api.py                Api с фейковым движком (16)
   test_engine_unit.py        EngineAnalyzer с фейковым процессом, без Stockfish (16)
   test_engine.py             EngineAnalyzer с настоящим Stockfish; пропускаются без exe (9)
   test_paths.py              пути в исходниках и в exe, папка логов (4)
-  test_logs.py               лог в файл, ротация, без консоли, перехват исключений (9)
-  test_startup_check.py      проверка при старте и сообщения (7)
-  test_selfcheck.py          самопроверка и её отчёт (7)
-  test_app.py                точка входа (4)
-  test_build_exe.py          чистые функции скрипта сборки (8)
+  test_logs.py               лог в файл, ротация, без консоли, перехват исключений (10)
+  test_startup_check.py      проверка при старте и сообщения (9)
+  test_selfcheck.py          самопроверка и её отчёт (10)
+  test_app.py                точка входа (7)
+  test_build_exe.py          функции скрипта сборки (10)
 docs/
   ABOUT_PROJECT.md           о проекте
   ARCHITECTURE.md            этот документ
@@ -98,7 +98,7 @@ pyproject.toml, uv.lock, .python-version, pytest.ini, .gitignore, LICENSE (GPL-3
 - Иначе `check_startup()`: без WebView2 или если .NET-часть окна не загрузилась — системное окно с объяснением, и помогатор закрывается. Тяжёлые модули (pywebview, бэкенд) импортируются только после этого, в `run_app()`.
 - Создаёт `GameSession`, `EngineAnalyzer(on_error=…)` и `Api`, затем окно `webview.create_window("Шахматный помогатор", "frontend/index.html", js_api=api, width=900, height=640, min_size=(760, 600))`.
 - Даёт бэкенду три колбэка: `push_analysis` → `window.onAnalysis(<json>)`, `push_engine_error` → `window.onEngineError(<json>)` (оба через `window.evaluate_js`) и `set_on_top` → `apply_on_top`.
-- `webview.start(http_server=True, icon=…/assets/icon.ico)` раздаёт `frontend/` встроенным сервером; `icon` нужен для иконки окна при запуске из исходников (в exe pywebview берёт её из файла exe). Движок закрывается дважды: в обработчике `window.events.closed` и в `finally` (на случай, если `start()` упал). Второй вызов ничего не ждёт.
+- `webview.start(http_server=True, icon=…/assets/icon.ico)` раздаёт `frontend/` встроенным сервером; иконку окна pywebview ставит из файла `assets/icon.ico` (в exe он лежит в `_internal`). Движок закрывается дважды: в обработчике `window.events.closed` и в `finally` (на случай, если `start()` упал). Второй вызов ничего не ждёт.
 - `apply_on_top(window, flag)` — обход бага pywebview 6.2.1: там `TopMost` ставится прямо из потока js_api, который держит GIL и ждёт UI-поток, а UI-потоку для ответа нужен тот же GIL — окно зависало намертво. Мы выставляем `TopMost` в UI-потоке через `Form.Invoke`, как это уже сделано в основной ветке pywebview. Не на Windows — штатный `window.on_top`. Обход можно убрать, когда выйдет pywebview новее 6.2.1.
 
 ### `backend/game.py` — `GameSession`
@@ -124,7 +124,7 @@ pyproject.toml, uv.lock, .python-version, pytest.ini, .gitignore, LICENSE (GPL-3
 
 | Константа | Значение | Смысл |
 |---|---|---|
-| `DEFAULT_PATH` | `engine/stockfish.exe` | Путь к движку; переопределяется переменной `STOCKFISH_PATH` |
+| `DEFAULT_PATH` | `app_root()/engine/stockfish.exe` | Путь к движку; переопределяется переменной `STOCKFISH_PATH` |
 | `ENGINE_OPTIONS` | `{"Threads": 2, "Hash": 128}` | UCI-опции Stockfish |
 | `MULTIPV` | 3 | Сколько лучших ходов считать |
 | `MAX_DEPTH` / `MAX_TIME` | 20 / 4.0 с | Анализ заканчивается при глубине 20 или через 4 с — что раньше |
@@ -265,7 +265,7 @@ pywebview запускает обработчик `closed` в отдельном
 | Партия окончена сама | Ходы не принимаются, статус с причиной; отмена работает |
 | Окно зависло на `evaluate_js` | `stop()`/`close()` не ждут дольше таймаутов, движок закрывается |
 | Исключение при вызове бэка из JS | Ошибка показывается, доска пересинхронизируется через `get_state()` |
-| Нет WebView2 | До окна — системное сообщение со ссылкой на страницу загрузки Microsoft |
+| Нет WebView2 | До окна — системный вопрос, открыть ли страницу загрузки Microsoft; «Да» открывает её в браузере |
 | .NET-часть окна не загрузилась (например, файлы заблокированы как скачанные из интернета) | Системное сообщение с инструкцией «Свойства → Разблокировать», трассировка в лог |
 | Необработанное исключение | Пишется в лог с трассировкой |
 
@@ -281,7 +281,7 @@ uv run pytest -q
 - `test_engine.py` — с настоящим Stockfish (пропускаются, если exe нет): мат в 1, три линии, знак оценки за чёрных, остановка, замена анализа, параллельные `analyze()`.
 - `test_paths.py`, `test_logs.py` — пути в исходниках и в exe, папка логов; лог в файл, ротация, работа без консоли, перехват необработанных исключений.
 - `test_startup_check.py`, `test_selfcheck.py`, `test_app.py` — проверка при старте и сообщения, самопроверка и её отчёт, точка входа.
-- `test_build_exe.py` — чистые функции скрипта сборки: версия и тег, обход зависимостей, сбор лицензий, метка «из интернета».
+- `test_build_exe.py` — функции скрипта сборки: версия и тег, обход зависимостей, сбор лицензий, метка «из интернета», понятная ошибка без лицензии Python, отчёт зависшей самопроверки.
 
 GUI автоматически не тестируется: фронт проверяется `node --check frontend/main.js`, окно — вручную.
 
@@ -291,14 +291,14 @@ GUI автоматически не тестируется: фронт пров�
 
 - **Скрипт** `uv run --group build python scripts/build_exe.py`: версия из `pyproject.toml` (с `--expect-tag` — сверка с тегом); Stockfish sf_19 в кэш `build/cache/stockfish-sf_19/` со сверкой SHA-256; PyInstaller по `chess-helper.spec`; движок, `chess-helper.exe.config`, `LICENSE`, `README.txt` из `packaging/` и лицензии всех пакетов сборки (обход зависимостей по метаданным; если файла нет — текст из `packaging/licenses/`, иначе ошибка); самопроверка; самопроверка на копии с меткой «из интернета»; zip `dist/chess-helper-v<версия>-windows-x64.zip`. С `--stockfish-only` только готовит движок.
 - **Что не попадает в сборку.** В `chess-helper.spec` стоит `excludes=["setuptools", "_decimal"]`. Пакет setuptools во время работы не нужен (cffi импортирует его только при компиляции), а тянет в сборку `packaging` и вшитые библиотеки без лицензий. Без `_decimal` модуль `decimal` переходит на чистый Python (`_pydecimal`), и библиотека mpdecimal в сборку не попадает.
-- **Лицензии.** Кроме лицензий пакетов из метаданных, в `packaging/licenses/` лежат тексты для proxy-tools (в пакете нет файла лицензии) и для библиотек, встроенных в pywebview (WebView2 SDK) и в сборку Python (OpenSSL, libffi, expat). Скрипт сборки кладёт их в `licenses/` вместе с лицензиями Python, Stockfish и chessground.
+- **Лицензии.** Кроме лицензий пакетов из метаданных, в `packaging/licenses/` лежат тексты для proxy-tools (в пакете нет файла лицензии) и для библиотек, встроенных в pywebview (WebView2 SDK) и в сборку Python (OpenSSL, libffi, expat), а также `python-third-party.txt` — где искать уведомления о сторонних компонентах внутри самого Python (`python313.dll` и модули стандартной библиотеки). Скрипт сборки кладёт их в `licenses/` вместе с лицензиями Python, Stockfish и chessground.
 - **Пути в exe.** `backend/paths.app_root()` — `sys._MEIPASS` (папка `_internal`) в сборке и корень репозитория в исходниках; фронтенд pywebview находит сам.
 - **Без чёрного окна.** Stockfish запускается с `CREATE_NO_WINDOW`: иначе у exe без консоли Windows открыла бы для движка отдельное окно консоли.
 - **Лог.** `backend/logs.py` — файл в `%LOCALAPPDATA%\chess-helper\logs\`, перехват `sys.excepthook` и `threading.excepthook`.
 - **Проверка при старте.** `backend/startup_check.py` импортирует `webview.platforms.winforms` и читает его `renderer`: решение принимает сам pywebview, поэтому проверка с ним не расходится. Без WebView2 pywebview выбрал бы Internet Explorer, в котором доска не работает.
 - **Метка «из интернета».** Проводник помечает файлы из скачанного zip, а .NET Framework не грузит такие DLL через `Assembly.LoadFrom` без `loadFromRemoteSources` — её включает `chess-helper.exe.config`. Скрипт сборки проверяет это самопроверкой на помеченной копии.
-- **Самопроверка.** `chess-helper.exe --self-check <отчёт>`: файлы сборки, вложенный Stockfish (без учёта `STOCKFISH_PATH`) считает начальную позицию, грузится .NET-часть окна (`webview.platforms.edgechromium`); строки `OK`/`FAIL`/`INFO`, код 0 или 1.
-- **Иконка.** `assets/icon.svg` — исходник; `scripts/make_icon.py` рендерит его headless Edge в PNG 512×512 и собирает `assets/icon.ico` Pillow'ом. `msedge.exe` может перезапустить себя и выйти, когда картинки ещё нет, поэтому скрипт ждёт, пока появится PNG и Edge отпустит временный профиль (исчезнет `lockfile`). В exe иконку окна pywebview берёт из файла exe.
+- **Самопроверка.** `chess-helper.exe --self-check <отчёт>`: файлы сборки, вложенный Stockfish (без учёта `STOCKFISH_PATH`) считает начальную позицию, грузится .NET-часть окна (`webview.platforms.edgechromium`, затем `webview.platforms.winforms`, как при старте); какой движок окна выбрал бы pywebview — справка `INFO`, сбой любого импорта — `FAIL`; строки `OK`/`FAIL`/`INFO`, код 0 или 1.
+- **Иконка.** `assets/icon.svg` — исходник; `scripts/make_icon.py` рендерит его headless Edge в PNG 512×512 и собирает `assets/icon.ico` Pillow'ом. `msedge.exe` может перезапустить себя и выйти, когда картинки ещё нет, поэтому скрипт ждёт, пока появится PNG и Edge отпустит временный профиль (исчезнет `lockfile`). Иконку окна pywebview ставит из файла `assets/icon.ico`, который в exe лежит в `_internal`; иконку самого exe задаёт `chess-helper.spec`.
 - **GitHub Actions** (`.github/workflows/release.yml`): по тегу `v*` на `windows-latest` — Stockfish, тесты с настоящим движком, сборка, черновик релиза; ручной запуск — то же без релиза.
 
 ## Решения и почему

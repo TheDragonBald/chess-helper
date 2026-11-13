@@ -87,7 +87,7 @@ def run_app() -> None:
     holder["window"] = window
     window.events.closed += engine.close
     try:
-        # Иконка окна: в exe pywebview берёт её из файла exe, при запуске из исходников — отсюда
+        # Иконку окна pywebview ставит из файла assets/icon.ico; в exe он лежит в _internal (app_root())
         webview.start(http_server=True, icon=str(app_root() / "assets" / "icon.ico"))
     finally:
         # Фоновый поток python-chess не демон: без этого процесс завис бы при сбое start()

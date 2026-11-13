@@ -125,7 +125,7 @@ def main(argv: list[str] | None = None) -> None:
     webview.start(http_server=True, icon=str(app_root() / "assets" / "icon.ico"))
 ```
 
-Иконку окна pywebview в exe и сам берёт из файла exe, но параметр `icon` нужен, чтобы иконка была и при запуске `uv run app.py`: на WinForms он работает (`winforms.py:243-250`), хотя в описании pywebview сказано «только GTK/QT».
+Иконку окна pywebview ставит из файла `assets/icon.ico`, переданного в параметре `icon` (в exe он лежит в `_internal`): на WinForms параметр работает (`winforms.py:243-250`), хотя в описании pywebview сказано «только GTK/QT». Без `icon` pywebview взял бы иконку из исполняемого файла процесса — при запуске `uv run app.py` это `python.exe`.
 
 ## Метка «скачано из интернета»
 

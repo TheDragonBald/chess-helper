@@ -20,6 +20,9 @@ and run `chess-helper.exe`: Python and Stockfish are already inside.
 
 - Windows may show "Windows protected your PC" (SmartScreen) because the
   program is not digitally signed: click "More info" → "Run anyway".
+- Some antivirus programs falsely flag unsigned programs like this one as
+  dangerous. The source code is open, and you can build the helper yourself:
+  see [installation from source](#installation-from-source-windows) below.
 - The WebView2 Runtime is required (preinstalled on Windows 11). If it is
   missing, the helper offers to open the download page.
 - If the helper says it could not load its components, Windows has blocked the
@@ -128,6 +131,9 @@ of the zip.
 - Windows может показать «Система Windows защитила ваш компьютер» (SmartScreen):
   у программы нет цифровой подписи. Нажми «Подробнее» → «Выполнить в любом
   случае».
+- Некоторые антивирусы ложно считают опасными программы без подписи, как эта.
+  Исходники открыты, и собрать помогатор можно самому — см.
+  [установку из исходников](#установка-из-исходников-windows) ниже.
 - Нужен WebView2 Runtime (на Windows 11 уже есть). Если его нет, помогатор
   предложит открыть страницу загрузки.
 - Если помогатор пишет, что не удалось загрузить компоненты, Windows

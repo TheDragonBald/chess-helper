@@ -57,7 +57,7 @@
 
 ## Как начать
 
-Проще всего — скачать zip из [Releases](https://github.com/TheDragonBald/chess-helper/releases), распаковать и запустить `chess-helper.exe`; подробности, в том числе про SmartScreen и разблокировку файлов, — в [README](../README.md).
+Проще всего — скачать zip из [Releases](https://github.com/TheDragonBald/chess-helper/releases), распаковать и запустить `chess-helper.exe`; нужен WebView2 Runtime (на Windows 11 уже есть). Подробности, в том числе про SmartScreen и разблокировку файлов, — в [README](../README.md).
 
 Из исходников:
 
@@ -65,13 +65,13 @@
 uv sync
 ```
 
-Скачать `stockfish-windows-x86-64-universal.zip` из релиза [sf_19](https://github.com/official-stockfish/Stockfish/releases/tag/sf_19), положить `stockfish/stockfish-windows-x86-64-universal.exe` из архива в `engine/` и переименовать в `stockfish.exe`. Затем:
+Скачать `stockfish-windows-x86-64-universal.zip` (для Windows на ARM — `stockfish-windows-arm64-universal.zip`) из релиза [sf_19](https://github.com/official-stockfish/Stockfish/releases/tag/sf_19), положить `stockfish/stockfish-windows-x86-64-universal.exe` из архива в `engine/` и переименовать в `stockfish.exe`. Затем:
 
 ```bash
 uv run app.py
 ```
 
-Нужны Windows, [uv](https://docs.astral.sh/uv/getting-started/installation/) и WebView2 Runtime (на Windows 11 уже есть).
+Для запуска из исходников нужны Windows, [uv](https://docs.astral.sh/uv/getting-started/installation/) и WebView2 Runtime (на Windows 11 уже есть).
 
 ## Как пользоваться в партии
 
@@ -129,6 +129,7 @@ uv run app.py
 
 **Надёжность и разработка**
 - [#4](https://github.com/TheDragonBald/chess-helper/issues/4) — мелкие доработки и тесты по итогам ревью;
+- [#26](https://github.com/TheDragonBald/chess-helper/issues/26) — мелкие доработки и тесты по итогам ревью сборки exe;
 - [#10](https://github.com/TheDragonBald/chess-helper/issues/10) — GitHub Actions: тесты на каждый PR;
 - [#11](https://github.com/TheDragonBald/chess-helper/issues/11) — линтер ruff и Dependabot;
 - [#12](https://github.com/TheDragonBald/chess-helper/issues/12) — сторож зависаний и дамп потоков.
