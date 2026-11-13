@@ -15,7 +15,10 @@ jobs:
     env:
       PYTHONUTF8: "1"  # кириллица в выводе скриптов и тестов
     steps:
+      # Токен в .git/config job'у не нужен — gh получает его через GH_TOKEN
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       # У setup-uv с v8 нет плавающих тегов вида v10 — только полные версии
       - uses: astral-sh/setup-uv@v10.3.3
@@ -36,9 +39,12 @@ jobs:
 
       - name: Build
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "push" ]; then
-            uv run --group build python scripts/build_exe.py --expect-tag "${{ github.ref_name }}"
+          if [ "$EVENT_NAME" = "push" ]; then
+            uv run --group build python scripts/build_exe.py --expect-tag "$TAG"
           else
             uv run --group build python scripts/build_exe.py
           fi
