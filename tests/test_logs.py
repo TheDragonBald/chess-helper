@@ -48,6 +48,19 @@ def test_info_is_not_written(tmp_path):
     assert "лишнее" not in log_file.read_text(encoding="utf-8")
 
 
+def test_info_of_logger_with_own_level_is_not_written(tmp_path):
+    # Как у pywebview: свой уровень INFO у логгера обходит уровень корня
+    log_file = logs.setup_logging(tmp_path)
+    chatty = logging.getLogger("test.own-level")
+    chatty.setLevel(logging.INFO)
+    try:
+        chatty.info("болтовня")
+        flush()
+    finally:
+        chatty.setLevel(logging.NOTSET)
+    assert "болтовня" not in log_file.read_text(encoding="utf-8")
+
+
 def test_rotation_settings(tmp_path):
     logs.setup_logging(tmp_path)
     [file_handler] = [h for h in own_handlers() if isinstance(h, RotatingFileHandler)]

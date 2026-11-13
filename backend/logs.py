@@ -49,6 +49,9 @@ def setup_logging(directory: Path | None = None) -> Path | None:
 
 
 def _add_handler(root: logging.Logger, handler: logging.Handler, formatter: logging.Formatter) -> None:
+    # Уровень и у обработчика: логгер со своим уровнем INFO/DEBUG (например, pywebview)
+    # иначе писал бы в файл в обход уровня корня
+    handler.setLevel(logging.WARNING)
     handler.setFormatter(formatter)
     setattr(handler, OWN_MARK, True)
     root.addHandler(handler)
