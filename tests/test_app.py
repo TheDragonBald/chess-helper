@@ -2,6 +2,20 @@
 import pytest
 
 import app
+from backend import startup_check
+
+
+def must_not_run(*args, **kwargs):
+    raise AssertionError("не должен вызываться")
+
+
+@pytest.fixture(autouse=True)
+def no_window(monkeypatch):
+    # По умолчанию путь к окну закрыт: тест, попавший на него по ошибке, падает, а не открывает
+    # окно и не вешает прогон. Тесты, которым этот путь нужен, ставят свои подмены поверх этих
+    monkeypatch.setattr(app, "run_app", must_not_run)
+    monkeypatch.setattr("backend.startup_check.check_startup", must_not_run)
+    monkeypatch.setattr("backend.startup_check.show_startup_problem", must_not_run)
 
 
 @pytest.fixture
@@ -51,3 +65,20 @@ def test_no_problem_starts_window(monkeypatch, log_file):
     monkeypatch.setattr(app, "run_app", lambda: started.append(True))
     app.main([])
     assert started == [True]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        # Аргументы — безопасные подмены: и без заглушки эти вызовы не грузят .NET и не показывают окно
+        lambda: startup_check.check_startup(lambda: "edgechromium"),
+        lambda: startup_check.show_startup_problem(
+            startup_check.DOTNET, None, message_box=lambda text, title, flags: 1, open_url=lambda url: None
+        ),
+        lambda: app.run_app(),
+    ],
+    ids=["check_startup", "show_startup_problem", "run_app"],
+)
+def test_window_path_is_stubbed_by_default(call):
+    with pytest.raises(AssertionError, match="не должен вызываться"):
+        call()
