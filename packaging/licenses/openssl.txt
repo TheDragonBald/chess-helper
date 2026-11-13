@@ -1,5 +1,5 @@
-OpenSSL 3.5.8 — libcrypto-3-x64.dll and libssl-3-x64.dll from the Python 3.13 build (Apache License 2.0)
-https://github.com/openssl/openssl/blob/openssl-3.5.8/LICENSE.txt
+OpenSSL 3 — libcrypto-3-x64.dll and libssl-3-x64.dll from the Python 3.13 build (Apache License 2.0)
+https://github.com/openssl/openssl/blob/master/LICENSE.txt
 
 
                                  Apache License

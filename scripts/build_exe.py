@@ -16,6 +16,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+# Это библиотека packaging. Папка packaging/ проекта — не Python-пакет: не добавляй в неё __init__.py,
+# иначе она затенит библиотеку (корень репозитория в sys.path: pythonpath = . в pytest.ini, pathex в spec)
 from packaging.requirements import Requirement
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -171,6 +173,12 @@ def run_pyinstaller() -> None:
 
 def assemble(stockfish: Path, version: str) -> None:
     """Докладывает в сборку движок, настройку .NET, README, LICENSE и лицензии компонентов."""
+    python_license = Path(sys.base_prefix) / "LICENSE.txt"
+    if not python_license.exists():
+        raise SystemExit(
+            f"Нет файла лицензии Python: {python_license}. Без него сборку выпускать нельзя — "
+            "собери управляемым Python от uv (UV_PYTHON_PREFERENCE=only-managed), в нём этот файл есть"
+        )
     engine_dir = APP_DIR / "_internal" / "engine"
     engine_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy2(stockfish, engine_dir / "stockfish.exe")
@@ -182,7 +190,8 @@ def assemble(stockfish: Path, version: str) -> None:
     licenses = APP_DIR / "licenses"
     collect_licenses(licenses, runtime_distributions())
     extras = {
-        Path(sys.base_prefix) / "LICENSE.txt": "python-LICENSE.txt",
+        python_license: "python-LICENSE.txt",
+        LICENSE_OVERRIDES / "python-third-party.txt": "python-third-party.txt",
         stockfish.parent / "Copying.txt": "stockfish-Copying.txt",
         stockfish.parent / "AUTHORS": "stockfish-AUTHORS.txt",
         LICENSE_OVERRIDES / "webview2-sdk.txt": "webview2-sdk.txt",
@@ -207,6 +216,9 @@ def self_check_exe(app_dir: Path, report: Path) -> None:
         # Убиваем всё дерево процессов: иначе оставшийся Stockfish держит файлы сборки
         subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"], check=False)
         process.wait()
+        # Отчёт пишется после всех проверок: если он есть, exe завис уже на выходе
+        if report.exists():
+            print(f"Самопроверка {app_dir}:\n{report.read_text(encoding='utf-8')}", end="")
         raise SystemExit(f"Самопроверка {app_dir} не уложилась в {SELF_CHECK_TIMEOUT} с")
     text = report.read_text(encoding="utf-8") if report.exists() else "(отчёта нет — подробности в логе)\n"
     print(f"Самопроверка {app_dir}:\n{text}", end="")

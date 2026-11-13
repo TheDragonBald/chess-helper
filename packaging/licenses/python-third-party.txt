@@ -1,0 +1,7 @@
+Python 3.13 — third-party software incorporated into python313.dll and the standard library extension modules
+https://docs.python.org/3.13/license.html
+
+The Python runtime bundled in this build includes third-party components (for example HACL*, mimalloc,
+the Mersenne Twister and others) whose copyright notices and license terms are listed in the section
+"Licenses and Acknowledgements for Incorporated Software" of the page above. The Python license itself
+is in python-LICENSE.txt.

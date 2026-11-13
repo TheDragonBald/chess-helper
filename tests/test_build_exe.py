@@ -1,4 +1,5 @@
-"""Чистые функции скрипта сборки: версия и тег, обход зависимостей, лицензии, метка интернета."""
+"""Функции скрипта сборки: версия и тег, обход зависимостей, лицензии, метка интернета, ошибки сборки."""
+import subprocess
 import sys
 from pathlib import Path
 
@@ -77,6 +78,41 @@ def test_collect_licenses_uses_override_when_package_has_no_license(tmp_path):
 def test_collect_licenses_fails_without_any_license(tmp_path):
     with pytest.raises(SystemExit, match="proxy-tools"):
         build_exe.collect_licenses(tmp_path / "out", [FakeDist("proxy_tools", [])], overrides=tmp_path / "none")
+
+
+def test_assemble_without_python_license_stops_with_clear_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_exe, "APP_DIR", tmp_path / "app")
+    monkeypatch.setattr(sys, "base_prefix", str(tmp_path / "python"))  # Python без LICENSE.txt
+    stockfish = tmp_path / "stockfish.exe"
+    stockfish.write_bytes(b"")
+    with pytest.raises(SystemExit, match="LICENSE.txt"):
+        build_exe.assemble(stockfish, "0.1.0")
+
+
+class HangingProcess:
+    """Подмена Popen: exe успел записать отчёт, но не завершился."""
+
+    pid = 4242
+
+    def __init__(self, args):
+        self.args = args
+        Path(args[2]).write_text("OK files: файлы на месте\n", encoding="utf-8")
+
+    def wait(self, timeout=None):
+        if timeout is not None:
+            raise subprocess.TimeoutExpired(self.args, timeout)
+        return 1
+
+
+def test_self_check_timeout_prints_written_report(tmp_path, monkeypatch, capsys):
+    killed = []
+    monkeypatch.setattr(subprocess, "Popen", HangingProcess)
+    # Настоящий taskkill по выдуманному PID мог бы убить чужой процесс
+    monkeypatch.setattr(subprocess, "run", lambda args, check: killed.append(args))
+    with pytest.raises(SystemExit, match="не уложилась"):
+        build_exe.self_check_exe(tmp_path, tmp_path / "report.txt")
+    assert killed[0][0] == "taskkill"
+    assert "OK files: файлы на месте" in capsys.readouterr().out
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="потоки NTFS есть только на Windows")
