@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -11,7 +13,9 @@ from typing import Callable
 import chess
 import chess.engine
 
-DEFAULT_PATH = Path(__file__).resolve().parent.parent / "engine" / "stockfish.exe"
+from backend.paths import app_root
+
+DEFAULT_PATH = app_root() / "engine" / "stockfish.exe"
 ENGINE_OPTIONS = {"Threads": 2, "Hash": 128}
 MULTIPV = 3
 MAX_DEPTH = 20
@@ -31,6 +35,14 @@ def resolve_engine_path() -> Path:
     # Путь можно переопределить переменной окружения STOCKFISH_PATH
     env = os.environ.get("STOCKFISH_PATH")
     return Path(env) if env else DEFAULT_PATH
+
+
+def popen_args() -> dict:
+    # Без CREATE_NO_WINDOW у exe без консоли Windows открывает для Stockfish отдельное
+    # чёрное окно, а если его закрыть, движок завершается
+    if sys.platform == "win32":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
 
 
 def build_result(board: chess.Board, pov: chess.Color, infos: list[dict]) -> dict:
@@ -83,7 +95,7 @@ class EngineAnalyzer:
             return False
         engine = None
         try:
-            engine = chess.engine.SimpleEngine.popen_uci(str(self.path))
+            engine = chess.engine.SimpleEngine.popen_uci(str(self.path), **popen_args())
             engine.configure(ENGINE_OPTIONS)
         except (chess.engine.EngineError, OSError) as exc:
             # Процесс мог успеть запуститься: без close() он и поток python-chess

@@ -1,5 +1,7 @@
 """Тесты EngineAnalyzer без настоящего Stockfish: процесс движка подменён фейком."""
 import threading
+import subprocess
+import sys
 import time
 
 import chess
@@ -8,6 +10,7 @@ import pytest
 
 import backend.engine as engine_module
 from backend.engine import EngineAnalyzer, build_result
+from backend.paths import app_root
 
 
 def info(move="e2e4", cp=None, mate=None, depth=10, multipv=1, pov=chess.WHITE):
@@ -324,3 +327,26 @@ def test_crash_message_keeps_the_original_reason(fake_engines):
     assert "exit code: 3" in errors[-1]
     assert "event loop dead" not in errors[-1]
     analyzer.close()
+
+
+def test_default_engine_path_is_inside_app_root():
+    assert engine_module.DEFAULT_PATH == app_root() / "engine" / "stockfish.exe"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="флаг CREATE_NO_WINDOW есть только на Windows")
+def test_engine_starts_without_console_window(monkeypatch, tmp_path):
+    # Без флага у exe без консоли Windows открыла бы для Stockfish отдельное чёрное окно
+    calls = []
+
+    def popen_uci(command, **kwargs):
+        calls.append(kwargs)
+        return FakeEngine()
+
+    monkeypatch.setattr(chess.engine.SimpleEngine, "popen_uci", staticmethod(popen_uci))
+    path = tmp_path / "fake-stockfish.exe"
+    path.write_bytes(b"")
+    analyzer = EngineAnalyzer(path=path)
+    try:
+        assert calls == [{"creationflags": subprocess.CREATE_NO_WINDOW}]
+    finally:
+        analyzer.close()

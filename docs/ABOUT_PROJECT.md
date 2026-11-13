@@ -21,10 +21,11 @@
 | Где | Адрес |
 |---|---|
 | GitHub (открытый репозиторий) | https://github.com/TheDragonBald/chess-helper |
+| Готовая сборка (zip для Windows) | https://github.com/TheDragonBald/chess-helper/releases |
 | Локально | `D:\its_mine\Programming\Pet-Projects\active\chess_helper` |
 | Основная ветка | `main` |
 
-Работа идёт через ветки и pull request'ы в `main` (squash-мерж). `engine/stockfish.exe` и `.venv` в git не хранятся: движок скачивается по README, окружение собирается `uv sync`.
+Работа идёт через ветки и pull request'ы в `main` (squash-мерж). `engine/stockfish.exe` и `.venv` в git не хранятся: движок скачивается по README, окружение собирается `uv sync`. Готовый zip собирает `scripts/build_exe.py`, а по тегу `v*` — GitHub Actions (черновик релиза).
 
 ## Что умеет
 
@@ -49,25 +50,28 @@
 
 **Удобства**
 - «Поверх всех окон» — окно висит над всеми окнами, не только над Discord.
+- Готовая сборка для Windows: zip с exe, внутри Python и Stockfish; ошибки пишутся в лог-файл.
 - Поле FEN (+ «Загрузить» или Enter) — подключиться к уже идущей партии; ошибки FEN объясняются понятными словами.
 - «Новая за…» при начатой партии спрашивает подтверждение вторым нажатием (двойной клик не считается).
 - Если Stockfish упадёт — об этом сразу пишется в панели, и помогатор один раз перезапускает движок.
 
 ## Как начать
 
-Подробно — в [README](../README.md). Коротко:
+Проще всего — скачать zip из [Releases](https://github.com/TheDragonBald/chess-helper/releases), распаковать и запустить `chess-helper.exe`; нужен WebView2 Runtime (на Windows 11 уже есть). Подробности, в том числе про SmartScreen и разблокировку файлов, — в [README](../README.md).
+
+Из исходников:
 
 ```bash
 uv sync
 ```
 
-Скачать `stockfish-windows-x86-64-avx2.zip` из релиза [sf_17.1](https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1), положить exe из архива в `engine/` и переименовать в `stockfish.exe`. Затем:
+Скачать `stockfish-windows-x86-64-universal.zip` (для Windows на ARM — `stockfish-windows-arm64-universal.zip`) из релиза [sf_19](https://github.com/official-stockfish/Stockfish/releases/tag/sf_19), положить `stockfish/stockfish-windows-x86-64-universal.exe` из архива в `engine/` и переименовать в `stockfish.exe`. Затем:
 
 ```bash
 uv run app.py
 ```
 
-Нужны Windows, [uv](https://docs.astral.sh/uv/getting-started/installation/) и WebView2 Runtime (на Windows 11 уже есть).
+Для запуска из исходников нужны Windows, [uv](https://docs.astral.sh/uv/getting-started/installation/) и WebView2 Runtime (на Windows 11 уже есть).
 
 ## Как пользоваться в партии
 
@@ -81,6 +85,7 @@ uv run app.py
 ## Ограничения
 
 - Только Windows.
+- Exe без цифровой подписи: при первом запуске SmartScreen предупреждает.
 - Ходы вводятся вручную: экран и Discord помогатор не читает.
 - Превращение только в ферзя; другую фигуру можно поставить через FEN ([#16](https://github.com/TheDragonBald/chess-helper/issues/16)).
 - Нет часов, сохранения партий и экспорта PGN ([#17](https://github.com/TheDragonBald/chess-helper/issues/17)).
@@ -96,6 +101,7 @@ uv run app.py
 | PR #5 | Исправления по полному ревью кода: доставка подсказок, которая не зависает вместе с окном; история ходов для движка; правила ничьей; номер версии позиции против запоздавших ответов; понятные ошибки FEN; подтверждение новой партии; обновлённые README и спека; 70 тестов |
 | PR #6 | Исправлено зависание окна на «Поверх всех окон» (баг pywebview 6.2.1) |
 | Документация | Этот файл и [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Сборка exe | Zip с exe для Windows (PyInstaller) и черновик релиза по тегу через GitHub Actions; Stockfish sf_19; лог в файл; проверка WebView2 при старте; самопроверка сборки; своя иконка |
 
 ## Планы
 
@@ -103,28 +109,30 @@ uv run app.py
 
 **Запуск и сборка**
 - [#2](https://github.com/TheDragonBald/chess-helper/issues/2) — заставка с выбором: продолжить в окне или открыть в браузере;
-- [#3](https://github.com/TheDragonBald/chess-helper/issues/3) — мобильная версия для браузера телефона (только после #2);
-- [#7](https://github.com/TheDragonBald/chess-helper/issues/7) — сборка в один exe без Python и uv;
-- [#9](https://github.com/TheDragonBald/chess-helper/issues/9) — переход на Stockfish sf_19.
+- [#3](https://github.com/TheDragonBald/chess-helper/issues/3) — мобильная версия для браузера телефона (только после #2).
 
 **Игра и подсказки**
 - [#16](https://github.com/TheDragonBald/chess-helper/issues/16) — выбор фигуры при превращении пешки;
 - [#18](https://github.com/TheDragonBald/chess-helper/issues/18) — оценка твоего хода: неточность, ошибка или зевок;
 - [#19](https://github.com/TheDragonBald/chess-helper/issues/19) — шкала оценки у доски и график оценки за партию;
 - [#20](https://github.com/TheDragonBald/chess-helper/issues/20) — угроза соперника;
-- [#21](https://github.com/TheDragonBald/chess-helper/issues/21) — режим тренировки: подсказки скрыты, пока не попросишь.
+- [#21](https://github.com/TheDragonBald/chess-helper/issues/21) — режим тренировки: подсказки скрыты, пока не попросишь;
+- [#24](https://github.com/TheDragonBald/chess-helper/issues/24) — тренировочный режим: разбор каждого хода, сравнение с прошлыми партиями, рекомендации;
+- [#25](https://github.com/TheDragonBald/chess-helper/issues/25) — голосовые объяснения разбора (не в приоритете, после #24).
 
 **Удобство**
 - [#13](https://github.com/TheDragonBald/chess-helper/issues/13) — запоминать размер и положение окна и «Поверх всех окон»;
 - [#14](https://github.com/TheDragonBald/chess-helper/issues/14) — настройки движка: число линий, глубина, время, потоки;
 - [#15](https://github.com/TheDragonBald/chess-helper/issues/15) — английский интерфейс;
-- [#17](https://github.com/TheDragonBald/chess-helper/issues/17) — копирование FEN, экспорт в PGN и сохранение партии.
+- [#17](https://github.com/TheDragonBald/chess-helper/issues/17) — копирование FEN, экспорт в PGN и сохранение партии;
+- [#23](https://github.com/TheDragonBald/chess-helper/issues/23) — несколько стилей фигур на выбор.
 
 **Надёжность и разработка**
 - [#4](https://github.com/TheDragonBald/chess-helper/issues/4) — мелкие доработки и тесты по итогам ревью;
+- [#26](https://github.com/TheDragonBald/chess-helper/issues/26) — мелкие доработки и тесты по итогам ревью сборки exe;
 - [#10](https://github.com/TheDragonBald/chess-helper/issues/10) — GitHub Actions: тесты на каждый PR;
 - [#11](https://github.com/TheDragonBald/chess-helper/issues/11) — линтер ruff и Dependabot;
-- [#12](https://github.com/TheDragonBald/chess-helper/issues/12) — лог в файл и дамп потоков при зависании.
+- [#12](https://github.com/TheDragonBald/chess-helper/issues/12) — сторож зависаний и дамп потоков.
 
 ## Лицензия
 

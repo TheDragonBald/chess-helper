@@ -1,12 +1,10 @@
 """Запуск помогатора: окно pywebview + бэк на Python."""
 import json
-import logging
+import sys
+from pathlib import Path
 
-import webview
-
-from backend.api import Api
-from backend.engine import EngineAnalyzer
-from backend.game import GameSession
+from backend.logs import setup_logging
+from backend.paths import app_root
 
 
 def apply_on_top(window, flag: bool) -> None:
@@ -31,9 +29,34 @@ def apply_on_top(window, flag: bool) -> None:
     form.Invoke(Func[Type](_apply))
 
 
-def main() -> None:
-    # Предупреждения и ошибки — в консоль: по ним видно, почему не пришли подсказки
-    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+def main(argv: list[str] | None = None) -> None:
+    argv = sys.argv[1:] if argv is None else argv
+    # Лог и перехват исключений — первым делом: у exe нет консоли, и всё, что сломается
+    # дальше (даже импорт), должно попасть в файл
+    log_file = setup_logging()
+    if argv[:1] == ["--self-check"]:
+        if len(argv) != 2:
+            sys.exit(2)  # нужен путь к файлу отчёта
+        from backend.selfcheck import run_self_check
+
+        sys.exit(run_self_check(Path(argv[1])))
+    from backend.startup_check import check_startup, show_startup_problem
+
+    problem = check_startup()
+    if problem is not None:
+        show_startup_problem(problem, log_file)
+        return
+    run_app()
+
+
+def run_app() -> None:
+    # Тяжёлые модули — только здесь, после проверки при старте
+    import webview
+
+    from backend.api import Api
+    from backend.engine import EngineAnalyzer
+    from backend.game import GameSession
+
     holder: dict = {}  # окно создаётся после Api, поэтому храним ссылку здесь
 
     def run_js(script: str) -> None:
@@ -64,7 +87,8 @@ def main() -> None:
     holder["window"] = window
     window.events.closed += engine.close
     try:
-        webview.start(http_server=True)
+        # Иконку окна pywebview ставит из файла assets/icon.ico; в exe он лежит в _internal (app_root())
+        webview.start(http_server=True, icon=str(app_root() / "assets" / "icon.ico"))
     finally:
         # Фоновый поток python-chess не демон: без этого процесс завис бы при сбое start()
         engine.close()
