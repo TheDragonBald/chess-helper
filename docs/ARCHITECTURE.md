@@ -30,9 +30,11 @@
 | [uv](https://docs.astral.sh/uv/) | — | Окружение и зависимости: `pyproject.toml` + `uv.lock`; `uv sync`, `uv run` |
 | [pywebview](https://pywebview.flowrl.com/) | 6.2.1 | Окно приложения, мост JS ↔ Python, встроенный HTTP-сервер для `frontend/`. На Windows работает через WinForms + Edge WebView2 и тянет pythonnet (`pythonnet`, `clr-loader`), а также `bottle`, `proxy-tools` |
 | [python-chess](https://python-chess.readthedocs.io/) (`chess`) | 1.11.2 | Правила шахмат (законные ходы, мат, пат, ничьи, FEN, SAN) и UCI-клиент для Stockfish |
-| [Stockfish](https://stockfishchess.org/) | 17.1, сборка Windows x64 avx2 | Шахматный движок, отдельный процесс `engine/stockfish.exe`; в git не хранится |
+| [Stockfish](https://stockfishchess.org/) | sf_19, сборка Windows x64 universal | Шахматный движок, отдельный процесс `engine/stockfish.exe`; в git не хранится, в zip-сборке лежит в `_internal/engine/` |
 | [chessground](https://github.com/lichess-org/chessground) | 9.2.1 | Доска на фронте (та же, что на lichess). Лежит готовыми файлами в `frontend/vendor/chessground/` (ES-модули + CSS), подключается через import map — npm для запуска не нужен |
 | pytest | ≥ 8 (группа `dev`) | Тесты |
+| [PyInstaller](https://pyinstaller.org/) | ≥ 6.22 (группа `build`) | Сборка exe папкой для релизов |
+| [Pillow](https://python-pillow.org/) | ≥ 11 (группа `build`) | Сборка `assets/icon.ico` из PNG |
 | Edge WebView2 Runtime | системный | Движок отрисовки окна; на Windows 11 установлен по умолчанию |
 
 `uv.lock` содержит и пакеты для macOS/Linux (pyobjc, qtpy) — это зависимости pywebview под другие платформы; на Windows они не ставятся.
@@ -40,8 +42,13 @@
 ## Структура файлов
 
 ```
-app.py                       запуск: логирование, окно, связка Api ↔ окно, обход бага «поверх всех окон»
+app.py                       запуск: лог, самопроверка, проверка при старте, окно, связка Api ↔ окно, обход «поверх всех окон»
+chess-helper.spec            настройки PyInstaller: сборка папкой, exe без консоли, иконка
 backend/
+  paths.py                   где лежат файлы в исходниках и в собранном exe, папка логов
+  logs.py                    лог в файл и перехват необработанных исключений
+  startup_check.py           проверка при старте: WebView2 и .NET-часть окна
+  selfcheck.py               самопроверка собранного exe (--self-check)
   game.py                    GameSession — партия: ходы, отмена, FEN, статусы, история
   engine.py                  EngineAnalyzer — Stockfish в фоне: анализ, курьер доставки, падения, закрытие
   api.py                     Api — методы для JS; номер версии позиции rev; решает, анализировать ли
@@ -50,17 +57,34 @@ frontend/
   main.js                    доска, панель, обработка ответов и подсказок, клавиши
   style.css                  тёмная тема, доска 560×560, панель 280 px
   vendor/chessground/        готовые файлы chessground (GPL-3.0)
+assets/
+  icon.svg                   иконка: исходник
+  icon.ico                   иконка для exe и окна (16–256 px)
 engine/
   .gitkeep                   папка есть в git; сюда кладётся stockfish.exe (игнорируется git)
+scripts/
+  build_exe.py               сборка zip: Stockfish, PyInstaller, лицензии, самопроверки
+  make_icon.py               icon.svg → icon.ico (headless Edge + Pillow)
+packaging/
+  README.txt                 шаблон README для zip
+  licenses/                  тексты лицензий, которых нет в метаданных пакетов
+.github/workflows/
+  release.yml                сборка по тегу v* → черновик релиза; вручную — пробный прогон
 tests/
   test_game.py               правила партии (31 тест)
   test_api.py                Api с фейковым движком (16)
-  test_engine_unit.py        EngineAnalyzer с фейковым процессом, без Stockfish (14)
+  test_engine_unit.py        EngineAnalyzer с фейковым процессом, без Stockfish (16)
   test_engine.py             EngineAnalyzer с настоящим Stockfish; пропускаются без exe (9)
+  test_paths.py              пути в исходниках и в exe, папка логов (4)
+  test_logs.py               лог в файл, ротация, без консоли, перехват исключений (9)
+  test_startup_check.py      проверка при старте и сообщения (7)
+  test_selfcheck.py          самопроверка и её отчёт (7)
+  test_app.py                точка входа (4)
+  test_build_exe.py          чистые функции скрипта сборки (8)
 docs/
   ABOUT_PROJECT.md           о проекте
   ARCHITECTURE.md            этот документ
-  superpowers/specs/…        исходная спецификация (обновлена под текущий код)
+  superpowers/specs/…        спецификации (исходная и сборки exe)
   superpowers/plans/…        планы реализации — история, по шагам
 pyproject.toml, uv.lock, .python-version, pytest.ini, .gitignore, LICENSE (GPL-3.0), README.md
 ```
@@ -69,10 +93,12 @@ pyproject.toml, uv.lock, .python-version, pytest.ini, .gitignore, LICENSE (GPL-3
 
 ### `app.py` — сборка приложения
 
-- Настраивает логирование: `WARNING` и выше в консоль, из которой запущен помогатор.
+- Первым делом `setup_logging()`: `WARNING` и выше — в `%LOCALAPPDATA%\chess-helper\logs\helper.log` (до трёх файлов по 1 МБ) и в консоль, если она есть; необработанные исключения, в том числе в потоках, тоже пишутся в лог.
+- С аргументами `--self-check <отчёт>` запускает самопроверку собранного exe и выходит с её кодом.
+- Иначе `check_startup()`: без WebView2 или если .NET-часть окна не загрузилась — системное окно с объяснением, и помогатор закрывается. Тяжёлые модули (pywebview, бэкенд) импортируются только после этого, в `run_app()`.
 - Создаёт `GameSession`, `EngineAnalyzer(on_error=…)` и `Api`, затем окно `webview.create_window("Шахматный помогатор", "frontend/index.html", js_api=api, width=900, height=640, min_size=(760, 600))`.
 - Даёт бэкенду три колбэка: `push_analysis` → `window.onAnalysis(<json>)`, `push_engine_error` → `window.onEngineError(<json>)` (оба через `window.evaluate_js`) и `set_on_top` → `apply_on_top`.
-- `webview.start(http_server=True)` раздаёт `frontend/` встроенным сервером. Движок закрывается дважды: в обработчике `window.events.closed` и в `finally` (на случай, если `start()` упал). Второй вызов ничего не ждёт.
+- `webview.start(http_server=True, icon=…/assets/icon.ico)` раздаёт `frontend/` встроенным сервером; `icon` нужен для иконки окна при запуске из исходников (в exe pywebview берёт её из файла exe). Движок закрывается дважды: в обработчике `window.events.closed` и в `finally` (на случай, если `start()` упал). Второй вызов ничего не ждёт.
 - `apply_on_top(window, flag)` — обход бага pywebview 6.2.1: там `TopMost` ставится прямо из потока js_api, который держит GIL и ждёт UI-поток, а UI-потоку для ответа нужен тот же GIL — окно зависало намертво. Мы выставляем `TopMost` в UI-потоке через `Form.Invoke`, как это уже сделано в основной ветке pywebview. Не на Windows — штатный `window.on_top`. Обход можно убрать, когда выйдет pywebview новее 6.2.1.
 
 ### `backend/game.py` — `GameSession`
@@ -239,6 +265,9 @@ pywebview запускает обработчик `closed` в отдельном
 | Партия окончена сама | Ходы не принимаются, статус с причиной; отмена работает |
 | Окно зависло на `evaluate_js` | `stop()`/`close()` не ждут дольше таймаутов, движок закрывается |
 | Исключение при вызове бэка из JS | Ошибка показывается, доска пересинхронизируется через `get_state()` |
+| Нет WebView2 | До окна — системное сообщение со ссылкой на страницу загрузки Microsoft |
+| .NET-часть окна не загрузилась (например, файлы заблокированы как скачанные из интернета) | Системное сообщение с инструкцией «Свойства → Разблокировать», трассировка в лог |
+| Необработанное исключение | Пишется в лог с трассировкой |
 
 ## Тесты
 
@@ -248,10 +277,29 @@ uv run pytest -q
 
 - `test_game.py` — правила без движка: ходы, автоферзь, рокировка, взятие на проходе, превращение со взятием, мат/пат/шах, троекратное повторение и 50 ходов (можно потребовать ничью), 75 ходов и нехватка материала (конец партии), FEN и причины ошибок, `history_start`.
 - `test_api.py` — `Api` с фейковым движком: когда анализировать и когда останавливать, `rev`, история ходов в движке, ошибка только в ответе действия, набор публичных методов, параллельные вызовы из нескольких потоков с проверкой законности каждого хода.
-- `test_engine_unit.py` — `EngineAnalyzer` без Stockfish: `popen_uci` подменён фейком через `monkeypatch`. `build_result`, ошибка `configure`, падения и правило одного перезапуска, причина падения, внутренняя ошибка, зависшая доставка, гонка `close()` с перезапуском, повторный `close()`, доска с историей.
+- `test_engine_unit.py` — `EngineAnalyzer` без Stockfish: `popen_uci` подменён фейком через `monkeypatch`. `build_result`, ошибка `configure`, падения и правило одного перезапуска, причина падения, внутренняя ошибка, зависшая доставка, гонка `close()` с перезапуском, повторный `close()`, доска с историей, запуск без окна консоли.
 - `test_engine.py` — с настоящим Stockfish (пропускаются, если exe нет): мат в 1, три линии, знак оценки за чёрных, остановка, замена анализа, параллельные `analyze()`.
+- `test_paths.py`, `test_logs.py` — пути в исходниках и в exe, папка логов; лог в файл, ротация, работа без консоли, перехват необработанных исключений.
+- `test_startup_check.py`, `test_selfcheck.py`, `test_app.py` — проверка при старте и сообщения, самопроверка и её отчёт, точка входа.
+- `test_build_exe.py` — чистые функции скрипта сборки: версия и тег, обход зависимостей, сбор лицензий, метка «из интернета».
 
 GUI автоматически не тестируется: фронт проверяется `node --check frontend/main.js`, окно — вручную.
+
+## Сборка exe
+
+Релиз — zip с папкой `chess-helper/`: `chess-helper.exe` без консоли, `chess-helper.exe.config`, служебная папка `_internal/` (Python, библиотеки, `frontend/`, `assets/icon.ico`, `engine/stockfish.exe`), `LICENSE`, `README.txt` и `licenses/`.
+
+- **Скрипт** `uv run --group build python scripts/build_exe.py`: версия из `pyproject.toml` (с `--expect-tag` — сверка с тегом); Stockfish sf_19 в кэш `build/cache/stockfish-sf_19/` со сверкой SHA-256; PyInstaller по `chess-helper.spec`; движок, `chess-helper.exe.config`, `LICENSE`, `README.txt` из `packaging/` и лицензии всех пакетов сборки (обход зависимостей по метаданным; если файла нет — текст из `packaging/licenses/`, иначе ошибка); самопроверка; самопроверка на копии с меткой «из интернета»; zip `dist/chess-helper-v<версия>-windows-x64.zip`. С `--stockfish-only` только готовит движок.
+- **Что не попадает в сборку.** В `chess-helper.spec` стоит `excludes=["setuptools", "_decimal"]`. Пакет setuptools во время работы не нужен (cffi импортирует его только при компиляции), а тянет в сборку `packaging` и вшитые библиотеки без лицензий. Без `_decimal` модуль `decimal` переходит на чистый Python (`_pydecimal`), и библиотека mpdecimal в сборку не попадает.
+- **Лицензии.** Кроме лицензий пакетов из метаданных, в `packaging/licenses/` лежат тексты для proxy-tools (в пакете нет файла лицензии) и для библиотек, встроенных в pywebview (WebView2 SDK) и в сборку Python (OpenSSL, libffi, expat). Скрипт сборки кладёт их в `licenses/` вместе с лицензиями Python, Stockfish и chessground.
+- **Пути в exe.** `backend/paths.app_root()` — `sys._MEIPASS` (папка `_internal`) в сборке и корень репозитория в исходниках; фронтенд pywebview находит сам.
+- **Без чёрного окна.** Stockfish запускается с `CREATE_NO_WINDOW`: иначе у exe без консоли Windows открыла бы для движка отдельное окно консоли.
+- **Лог.** `backend/logs.py` — файл в `%LOCALAPPDATA%\chess-helper\logs\`, перехват `sys.excepthook` и `threading.excepthook`.
+- **Проверка при старте.** `backend/startup_check.py` импортирует `webview.platforms.winforms` и читает его `renderer`: решение принимает сам pywebview, поэтому проверка с ним не расходится. Без WebView2 pywebview выбрал бы Internet Explorer, в котором доска не работает.
+- **Метка «из интернета».** Проводник помечает файлы из скачанного zip, а .NET Framework не грузит такие DLL через `Assembly.LoadFrom` без `loadFromRemoteSources` — её включает `chess-helper.exe.config`. Скрипт сборки проверяет это самопроверкой на помеченной копии.
+- **Самопроверка.** `chess-helper.exe --self-check <отчёт>`: файлы сборки, вложенный Stockfish (без учёта `STOCKFISH_PATH`) считает начальную позицию, грузится .NET-часть окна (`webview.platforms.edgechromium`); строки `OK`/`FAIL`/`INFO`, код 0 или 1.
+- **Иконка.** `assets/icon.svg` — исходник; `scripts/make_icon.py` рендерит его headless Edge в PNG 512×512 и собирает `assets/icon.ico` Pillow'ом. `msedge.exe` может перезапустить себя и выйти, когда картинки ещё нет, поэтому скрипт ждёт, пока появится PNG и Edge отпустит временный профиль (исчезнет `lockfile`). В exe иконку окна pywebview берёт из файла exe.
+- **GitHub Actions** (`.github/workflows/release.yml`): по тегу `v*` на `windows-latest` — Stockfish, тесты с настоящим движком, сборка, черновик релиза; ручной запуск — то же без релиза.
 
 ## Решения и почему
 
@@ -262,6 +310,8 @@ GUI автоматически не тестируется: фронт пров�
 - **`outcome()` без `claim_draw`.** Возможность потребовать ничью — не конец партии: в Discord игра может продолжиться, и подсказки нужны.
 - **Доска с историей в движок.** Без истории Stockfish не видит повторений позиции.
 - **chessground в репозитории.** Для запуска не нужен npm; лицензия GPL-3.0, поэтому и весь проект под GPL-3.0.
+- **Сборка папкой, а не одним exe.** Один exe при каждом запуске распаковывается во временную папку вместе с движком на десятки мегабайт, стартует медленнее и чаще смущает антивирусы.
+- **Проверка WebView2 через сам pywebview.** Своя копия его логики могла бы с ним разойтись; спрашивать `renderer` у pywebview надёжнее.
 
 ## Известные ограничения
 
@@ -269,5 +319,6 @@ GUI автоматически не тестируется: фронт пров�
 - Превращение пешки — всегда в ферзя; иную фигуру можно поставить через FEN ([#16](https://github.com/TheDragonBald/chess-helper/issues/16)).
 - Интерфейс на русском ([#15](https://github.com/TheDragonBald/chess-helper/issues/15)).
 - Обход `apply_on_top` нужен до выхода pywebview новее 6.2.1 ([#11](https://github.com/TheDragonBald/chess-helper/issues/11)).
-- Логи только в консоли, без файла ([#12](https://github.com/TheDragonBald/chess-helper/issues/12)).
+- Нет сторожа зависаний и дампа потоков ([#12](https://github.com/TheDragonBald/chess-helper/issues/12)).
+- Exe без цифровой подписи: при первом запуске SmartScreen предупреждает.
 - Открытые доработки и идеи — в issues; список по темам — в разделе [«Планы»](ABOUT_PROJECT.md#планы) файла ABOUT_PROJECT.

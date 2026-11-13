@@ -12,7 +12,24 @@ translations.
 More (in Russian): [about the project](docs/ABOUT_PROJECT.md) and
 [architecture](docs/ARCHITECTURE.md).
 
-## Installation (Windows)
+## Download (Windows)
+
+Download `chess-helper-v<version>-windows-x64.zip` from
+[Releases](https://github.com/TheDragonBald/chess-helper/releases), unpack it
+and run `chess-helper.exe`: Python and Stockfish are already inside.
+
+- Windows may show "Windows protected your PC" (SmartScreen) because the
+  program is not digitally signed: click "More info" → "Run anyway".
+- The WebView2 Runtime is required (preinstalled on Windows 11). If it is
+  missing, the helper offers to open the download page.
+- If the helper says it could not load its components, Windows has blocked the
+  downloaded files: delete the unpacked folder, open the zip file's
+  Properties, tick "Unblock" and unpack it again.
+- Errors are written to `%LOCALAPPDATA%\chess-helper\logs\helper.log`.
+
+To run the helper from source instead, read on.
+
+## Installation from source (Windows)
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/) (for
 example, `winget install --id=astral-sh.uv -e`) and the WebView2 Runtime
@@ -26,14 +43,13 @@ uv sync
 uv creates `.venv` and installs the dependencies pinned in `uv.lock`; if
 Python 3.13 is missing, uv downloads it.
 
-Stockfish: download `stockfish-windows-x86-64-avx2.zip` (or
-`stockfish-windows-x86-64.zip` if your CPU has no AVX2) from
-https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1. The
-program is in the `stockfish` folder inside the archive (for example
-`stockfish-windows-x86-64-avx2.exe`): copy it into the `engine` folder and
-rename it to `stockfish.exe`, so the path is `engine/stockfish.exe`. You can
-also keep it anywhere and put its full path into the `STOCKFISH_PATH`
-environment variable.
+Stockfish: download `stockfish-windows-x86-64-universal.zip` from
+https://github.com/official-stockfish/Stockfish/releases/tag/sf_19 (on Windows
+on ARM — `stockfish-windows-arm64-universal.zip`). The program is
+`stockfish/stockfish-windows-x86-64-universal.exe` inside the archive: copy it
+into the `engine` folder and rename it to `stockfish.exe`, so the path is
+`engine/stockfish.exe`. You can also keep it anywhere and put its full path
+into the `STOCKFISH_PATH` environment variable.
 
 ## Running
 
@@ -41,7 +57,8 @@ environment variable.
 uv run app.py
 ```
 
-Errors (for example, why hints did not appear) are printed to the console the
+Errors (for example, why hints did not appear) are written to
+`%LOCALAPPDATA%\chess-helper\logs\helper.log` and printed to the console the
 helper was started from.
 
 ## Controls
@@ -86,6 +103,10 @@ The project is licensed under GPL-3.0; the text is in [LICENSE](LICENSE).
 The board is [chessground](https://github.com/lichess-org/chessground)
 (GPL-3.0); its files are in `frontend/vendor/chessground/`.
 
+The icon is our own drawing, also under GPL-3.0. Releases include Stockfish
+(GPL-3.0); the licenses of all bundled components are in the `licenses` folder
+of the zip.
+
 ---
 
 # Шахматный помогатор
@@ -98,7 +119,25 @@ The board is [chessground](https://github.com/lichess-org/chessground)
 
 Подробнее: [о проекте](docs/ABOUT_PROJECT.md) и [архитектура](docs/ARCHITECTURE.md).
 
-## Установка (Windows)
+## Скачать (Windows)
+
+Скачай `chess-helper-v<версия>-windows-x64.zip` из
+[Releases](https://github.com/TheDragonBald/chess-helper/releases), распакуй и
+запусти `chess-helper.exe`: Python и Stockfish уже внутри.
+
+- Windows может показать «Система Windows защитила ваш компьютер» (SmartScreen):
+  у программы нет цифровой подписи. Нажми «Подробнее» → «Выполнить в любом
+  случае».
+- Нужен WebView2 Runtime (на Windows 11 уже есть). Если его нет, помогатор
+  предложит открыть страницу загрузки.
+- Если помогатор пишет, что не удалось загрузить компоненты, Windows
+  заблокировал скачанные файлы: удали распакованную папку, открой «Свойства»
+  zip-архива, отметь «Разблокировать» и распакуй заново.
+- Ошибки пишутся в `%LOCALAPPDATA%\chess-helper\logs\helper.log`.
+
+Запуск из исходников — ниже.
+
+## Установка из исходников (Windows)
 
 Нужны [uv](https://docs.astral.sh/uv/getting-started/installation/) (например,
 `winget install --id=astral-sh.uv -e`) и WebView2 Runtime (на Windows 11
@@ -113,12 +152,13 @@ uv создаст `.venv` и поставит зависимости, зафик
 Python 3.13 нет, uv скачает его сам.
 
 Stockfish: на странице
-https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1 скачай
-`stockfish-windows-x86-64-avx2.zip` (или `stockfish-windows-x86-64.zip`, если у
-процессора нет AVX2). Программа лежит в архиве в папке `stockfish` (например,
-`stockfish-windows-x86-64-avx2.exe`): скопируй её в папку `engine` и переименуй
-в `stockfish.exe`, чтобы получилось `engine/stockfish.exe`. Можно положить её
-куда угодно и указать полный путь в переменной окружения `STOCKFISH_PATH`.
+https://github.com/official-stockfish/Stockfish/releases/tag/sf_19 скачай
+`stockfish-windows-x86-64-universal.zip` (для Windows на ARM —
+`stockfish-windows-arm64-universal.zip`). Программа лежит в архиве в папке
+`stockfish` — `stockfish-windows-x86-64-universal.exe`: скопируй её в папку
+`engine` и переименуй в `stockfish.exe`, чтобы получилось
+`engine/stockfish.exe`. Можно положить её куда угодно и указать полный путь в
+переменной окружения `STOCKFISH_PATH`.
 
 ## Запуск
 
@@ -126,8 +166,9 @@ https://github.com/official-stockfish/Stockfish/releases/tag/sf_17.1 скача�
 uv run app.py
 ```
 
-Ошибки (например, почему не появились подсказки) печатаются в консоль, из
-которой запущен помогатор.
+Ошибки (например, почему не появились подсказки) пишутся в
+`%LOCALAPPDATA%\chess-helper\logs\helper.log` и в консоль, из которой запущен
+помогатор.
 
 ## Управление
 
@@ -171,3 +212,6 @@ uv run pytest -v
 
 Доска — [chessground](https://github.com/lichess-org/chessground) (GPL-3.0),
 файлы лежат в `frontend/vendor/chessground/`.
+
+Иконка — наш собственный рисунок, тоже под GPL-3.0. В релизах лежит Stockfish
+(GPL-3.0); лицензии всех компонентов сборки — в папке `licenses` внутри zip.
