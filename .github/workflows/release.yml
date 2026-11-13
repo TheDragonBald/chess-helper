@@ -12,30 +12,47 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    timeout-minutes: 30
     env:
       PYTHONUTF8: "1"  # кириллица в выводе скриптов и тестов
+      # Сборка из управляемого Python uv, как локально, а не из системного Python раннера
+      UV_PYTHON_PREFERENCE: only-managed
+    # Действия закреплены по хешу коммита, чтобы подмена тега не повлияла на сборку
     steps:
       # Токен в .git/config job'у не нужен — gh получает его через GH_TOKEN
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
         with:
           persist-credentials: false
 
       # У setup-uv с v8 нет плавающих тегов вида v10 — только полные версии
-      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
         with:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group build
+        run: uv sync --locked --group build
 
+      # По тегу версия сверяется ещё до скачивания Stockfish и тестов
       - name: Prepare Stockfish
-        run: uv run --group build python scripts/build_exe.py --stockfish-only
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ "$EVENT_NAME" = "push" ]; then
+            uv run --group build python scripts/build_exe.py --stockfish-only --expect-tag "$TAG"
+          else
+            uv run --group build python scripts/build_exe.py --stockfish-only
+          fi
 
-      # Тесты до сборки — так падение дешевле; с настоящим движком из кэша
+      # Тесты до сборки — так падение дешевле; с настоящим движком из кэша.
+      # Без движка шаг падает, а -rs печатает причины пропусков: тесты движка не пропустятся молча
       - name: Tests
         env:
           STOCKFISH_PATH: build/cache/stockfish-sf_19/stockfish.exe
-        run: uv run pytest -q
+        run: |
+          if (-not (Test-Path $env:STOCKFISH_PATH)) { throw "Нет движка: $env:STOCKFISH_PATH" }
+          uv run pytest -q -rs
 
       - name: Build
         shell: bash
