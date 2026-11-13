@@ -1070,10 +1070,12 @@ if __name__ == "__main__":
 Run: `uv run pytest -q`
 Expected: `103 passed`.
 
-- [ ] **Step 5: Проверить запуск из исходников**
+- [ ] **Step 5: Проверить запуск без окна**
 
-Run: `uv run app.py` (окно открывается; закрыть крестиком).
-Expected: окно помогатора с доской, как раньше; в `%LOCALAPPDATA%\chess-helper\logs\` появился `helper.log` (может быть пустым — пишутся только WARNING и выше). Иконки окна пока нет — она появится в задаче 6; предупреждений в консоли о ней быть не должно (pywebview просто не ставит иконку, если файла нет).
+Окно помогатора открывать не нужно: его нельзя закрыть без человека, команда повиснет. Живое окно проверяет пользователь в «Финальной проверке».
+
+Run: `uv run python -c "import app; from backend.startup_check import check_startup; print(check_startup())"`
+Expected: `None` — на этой машине WebView2 есть, .NET-часть окна загружается.
 
 - [ ] **Step 6: Коммит**
 
@@ -1296,7 +1298,7 @@ def test_read_version(tmp_path):
 
 
 def test_check_tag_accepts_matching_tag():
-    build_exe.check_tag("v0.1.0", "0.1.0")
+    assert build_exe.check_tag("v0.1.0", "0.1.0") is None  # совпадает — без SystemExit
 
 
 def test_check_tag_rejects_other_tag():
