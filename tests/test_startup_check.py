@@ -55,6 +55,12 @@ def test_no_webview2_no_does_not_open_page():
     assert opened == []
 
 
+def test_no_webview2_message_asks_to_restart_after_install():
+    box = Box(7)
+    show_startup_problem(NO_WEBVIEW2, None, message_box=box, open_url=lambda url: None)
+    assert box.calls[0][0].endswith("Открыть страницу загрузки Microsoft? После установки запусти помогатор снова.")
+
+
 def test_dotnet_message_mentions_log_and_unblock(tmp_path):
     box, opened = Box(1), []
     log_file = tmp_path / "helper.log"
@@ -64,3 +70,12 @@ def test_dotnet_message_mentions_log_and_unblock(tmp_path):
     assert "Разблокировать" in text
     assert flags == startup_check.MB_OK | startup_check.MB_ICONERROR
     assert opened == []
+
+
+def test_dotnet_message_without_log_file_says_log_failed():
+    # setup_logging() возвращает None, если папку лога не открыть
+    box = Box(1)
+    show_startup_problem(DOTNET, None, message_box=box, open_url=lambda url: None)
+    text = box.calls[0][0]
+    assert text.endswith("распакуй заново.\n\nЛог записать не удалось.")
+    assert "в логе" not in text

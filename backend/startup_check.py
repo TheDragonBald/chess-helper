@@ -24,14 +24,17 @@ IDYES = 6
 
 NO_WEBVIEW2_TEXT = (
     "Для работы помогатора нужен Microsoft Edge WebView2 Runtime. "
-    "Открыть страницу загрузки Microsoft?"
+    "Открыть страницу загрузки Microsoft? После установки запусти помогатор снова."
 )
 DOTNET_TEXT = (
     "Не удалось загрузить компоненты помогатора. Если архив скачан из интернета, "
     "Windows мог заблокировать файлы: удали распакованную папку, открой «Свойства» "
     "zip-архива, отметь «Разблокировать» и распакуй заново.\n\n"
-    "Подробности — в логе: {log_file}"
+    "{details}"
 )
+# Последний абзац DOTNET_TEXT: где лог или что записать его не удалось (setup_logging вернул None)
+DOTNET_LOG_DETAILS = "Подробности — в логе: {log_file}"
+DOTNET_NO_LOG_DETAILS = "Лог записать не удалось."
 
 
 def load_winforms_renderer() -> str:
@@ -74,5 +77,8 @@ def show_startup_problem(
         if message_box(NO_WEBVIEW2_TEXT, TITLE, MB_YESNO | MB_ICONWARNING) == IDYES:
             open_url(WEBVIEW2_URL)
         return
-    where = str(log_file) if log_file is not None else "лог записать не удалось"
-    message_box(DOTNET_TEXT.format(log_file=where), TITLE, MB_OK | MB_ICONERROR)
+    if log_file is not None:
+        details = DOTNET_LOG_DETAILS.format(log_file=log_file)
+    else:
+        details = DOTNET_NO_LOG_DETAILS
+    message_box(DOTNET_TEXT.format(details=details), TITLE, MB_OK | MB_ICONERROR)
