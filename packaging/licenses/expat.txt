@@ -1,4 +1,4 @@
-expat — statically linked into pyexpat.pyd and _elementtree.pyd of the Python 3.13 build (MIT License)
+expat 2.8.2 — statically linked into pyexpat.pyd (used by _elementtree.pyd through its C API) of the Python 3.13 build (MIT License)
 https://github.com/libexpat/libexpat/blob/master/expat/COPYING
 
 Copyright (c) 1998-2000 Thai Open Source Software Center Ltd and Clark Cooper
