@@ -136,7 +136,9 @@ def prepare_stockfish(cache: Path = STOCKFISH_CACHE) -> Path:
     if not archive.exists():
         print(f"Скачиваю {STOCKFISH_URL}")
         partial = archive.with_suffix(".part")
-        urllib.request.urlretrieve(STOCKFISH_URL, partial)
+        # Таймаут: зависшее соединение не должно вешать сборку
+        with urllib.request.urlopen(STOCKFISH_URL, timeout=60) as response, open(partial, "wb") as file:
+            shutil.copyfileobj(response, file)
         partial.replace(archive)
     actual = sha256(archive)
     if actual != STOCKFISH_SHA256:
@@ -178,11 +180,7 @@ def assemble(stockfish: Path, version: str) -> None:
     # utf-8-sig и CRLF — чтобы README.txt правильно открывался в Блокноте
     (APP_DIR / "README.txt").write_text(readme.replace("{version}", version), encoding="utf-8-sig", newline="\r\n")
     licenses = APP_DIR / "licenses"
-    dists = runtime_distributions()
-    # PyInstaller кладёт setuptools в сборку через runtime-хуки, поэтому прикладываем и его лицензию
-    if (APP_DIR / "_internal" / "setuptools").exists():
-        dists.append(metadata.distribution("setuptools"))
-    collect_licenses(licenses, dists)
+    collect_licenses(licenses, runtime_distributions())
     extras = {
         Path(sys.base_prefix) / "LICENSE.txt": "python-LICENSE.txt",
         stockfish.parent / "Copying.txt": "stockfish-Copying.txt",
@@ -190,6 +188,7 @@ def assemble(stockfish: Path, version: str) -> None:
         LICENSE_OVERRIDES / "webview2-sdk.txt": "webview2-sdk.txt",
         LICENSE_OVERRIDES / "openssl.txt": "openssl.txt",
         LICENSE_OVERRIDES / "libffi.txt": "libffi.txt",
+        LICENSE_OVERRIDES / "expat.txt": "expat.txt",
         ROOT / "frontend" / "vendor" / "chessground" / "LICENSE": "chessground-LICENSE.txt",
     }
     for source, name in extras.items():
@@ -239,8 +238,13 @@ def motw_self_check() -> None:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
+def zip_path(version: str) -> Path:
+    """Путь к zip релиза: dist/chess-helper-v<версия>-windows-x64.zip."""
+    return DIST / f"{APP_NAME}-v{version}-windows-x64.zip"
+
+
 def make_zip(version: str) -> Path:
-    archive = DIST / f"{APP_NAME}-v{version}-windows-x64.zip"
+    archive = zip_path(version)
     archive.unlink(missing_ok=True)
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
         for path in sorted(APP_DIR.rglob("*")):
@@ -265,6 +269,8 @@ def main(argv: list[str] | None = None) -> None:
     if args.stockfish_only:
         print(stockfish)
         return
+    # Zip прошлой сборки удаляем заранее, чтобы после неудачной пересборки его не приняли за свежий
+    zip_path(version).unlink(missing_ok=True)
     run_pyinstaller()
     assemble(stockfish, version)
     self_check_exe(APP_DIR, BUILD / "selfcheck-report.txt")

@@ -14,6 +14,10 @@ a = Analysis(
     ],
     # Импортируются внутри функций (проверка при старте и самопроверка) — перечисляем явно
     hiddenimports=["webview.platforms.winforms", "webview.platforms.edgechromium"],
+    # setuptools во время работы не нужен: cffi импортирует его лениво, только при компиляции,
+    # а с ним в сборку попадают packaging и вшитые библиотеки без лицензий.
+    # Без _decimal модуль decimal сам переходит на чистый Python (_pydecimal), поэтому mpdecimal не нужен
+    excludes=["setuptools", "_decimal"],
 )
 pyz = PYZ(a.pure)
 exe = EXE(
