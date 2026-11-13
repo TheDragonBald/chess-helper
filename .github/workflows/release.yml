@@ -1,0 +1,58 @@
+# Сборка помогатора для Windows. Тег v* — черновик релиза с zip; ручной запуск — пробный прогон без релиза.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      PYTHONUTF8: "1"  # кириллица в выводе скриптов и тестов
+    steps:
+      - uses: actions/checkout@v7
+
+      # У setup-uv с v8 нет плавающих тегов вида v10 — только полные версии
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --group build
+
+      - name: Prepare Stockfish
+        run: uv run --group build python scripts/build_exe.py --stockfish-only
+
+      # Тесты до сборки — так падение дешевле; с настоящим движком из кэша
+      - name: Tests
+        env:
+          STOCKFISH_PATH: build/cache/stockfish-sf_19/stockfish.exe
+        run: uv run pytest -q
+
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            uv run --group build python scripts/build_exe.py --expect-tag "${{ github.ref_name }}"
+          else
+            uv run --group build python scripts/build_exe.py
+          fi
+
+      - name: Draft release
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ZIP="dist/chess-helper-${TAG}-windows-x64.zip"
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --draft --generate-notes --title "Chess Helper $TAG"
+          fi
