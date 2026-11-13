@@ -1173,6 +1173,7 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -1183,6 +1184,7 @@ ICO = ROOT / "assets" / "icon.ico"
 PREVIEW = ROOT / "build" / "icon-preview.png"
 RENDER_SIZE = 512
 ICON_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+EDGE_TIMEOUT = 60  # секунд на отрисовку
 # В PATH Edge обычно нет — ищем в стандартных папках установки
 EDGE_CANDIDATES = (
     Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
@@ -1213,13 +1215,22 @@ def render_png(edge: Path, svg: Path, png: Path, size: int, profile: Path) -> No
             svg.as_uri(),
         ],
         check=True,
-        timeout=60,
+        timeout=EDGE_TIMEOUT,
     )
+    # msedge.exe может перезапустить себя дочерним процессом и сразу выйти с кодом 0 —
+    # тогда картинки ещё нет. Ждём, пока она появится и Edge отпустит профиль (исчезнет lockfile)
+    lock = profile / "lockfile"
+    deadline = time.monotonic() + EDGE_TIMEOUT
+    while not png.exists() or lock.exists():
+        if time.monotonic() > deadline:
+            raise SystemExit(f"Edge не отрисовал {png.name} за {EDGE_TIMEOUT} с")
+        time.sleep(0.2)
 
 
 def main() -> None:
     edge = find_edge()
-    with tempfile.TemporaryDirectory() as tmp:
+    # ignore_cleanup_errors — на случай, если вспомогательный процесс Edge ещё держит файл профиля
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         png = Path(tmp) / "icon.png"
         render_png(edge, SVG, png, RENDER_SIZE, Path(tmp) / "profile")
         # with — чтобы файл закрылся до удаления временной папки: Windows не удаляет открытые файлы
