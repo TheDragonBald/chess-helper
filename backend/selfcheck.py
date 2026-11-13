@@ -36,11 +36,18 @@ def check_engine(root: Path) -> str:
     from backend.engine import popen_args
 
     path = root / "engine" / "stockfish.exe"
+    if not path.exists():
+        raise FileNotFoundError(f"нет {path}")
     engine = chess.engine.SimpleEngine.popen_uci(str(path), **popen_args())
     try:
         info = engine.analyse(chess.Board(), chess.engine.Limit(depth=ENGINE_DEPTH, time=ENGINE_TIME))
     finally:
-        engine.quit()
+        # Ошибка quit() у зависшего движка не должна подменять причину сбоя, а close() не оставит
+        # недемонный поток python-chess, из-за которого exe не смог бы завершиться
+        try:
+            engine.quit()
+        except (chess.engine.EngineError, TimeoutError):
+            engine.close()
     score = info.get("score")
     if score is None:
         raise RuntimeError("движок не выдал оценку")
@@ -55,14 +62,12 @@ def check_dotnet(root: Path) -> str:
 
 
 def check_renderer(root: Path) -> Info:
-    # Справка: без WebView2 на раннере GitHub pywebview выбрал бы Internet Explorer — это не ошибка
+    # Справка — только выбор движка окна: например, на раннере без WebView2 pywebview выбрал бы
+    # Internet Explorer, и это не ошибка. Сбой импорта — ошибка: приложение при старте импортирует
+    # именно webview.platforms.winforms, а check_dotnet грузит только edgechromium
     from backend.startup_check import load_winforms_renderer
 
-    try:
-        renderer = load_winforms_renderer()
-    except Exception as exc:
-        return Info(f"не удалось узнать движок окна: {type(exc).__name__}: {exc}")
-    return Info(f"pywebview выбрал бы движок окна: {renderer}")
+    return Info(f"pywebview выбрал бы движок окна: {load_winforms_renderer()}")
 
 
 Check = Callable[[Path], str]
