@@ -102,6 +102,9 @@ uv run app.py
 | PR #6 | Исправлено зависание окна на «Поверх всех окон» (баг pywebview 6.2.1) |
 | Документация | Этот файл и [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Сборка exe | Zip с exe для Windows (PyInstaller) и черновик релиза по тегу через GitHub Actions; Stockfish sf_19; лог в файл; проверка WebView2 при старте; самопроверка сборки; своя иконка |
+| Релиз v0.1.0 | Первый релиз на GitHub: zip для Windows, собранный в GitHub Actions по тегу |
+
+Подробные заметки по сессиям — в [docs/history/](history/).
 
 ## Планы
 
